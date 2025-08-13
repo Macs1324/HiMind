@@ -14,8 +14,7 @@ In modern startups and tech companies:
 - New employees spend weeks asking "who should I talk to about X?"
 - Senior engineers are constantly interrupted with questions they've already answered
 - The same problems get solved multiple times because past solutions aren't discoverable
-- When employees leave, their knowledge leaves with them
-- There's no way to know who actually has hands-on experience vs. theoretical knowledge
+- It's hard to know who actually has hands-on experience vs. theoretical knowledge
 
 ### The Solution
 
@@ -60,6 +59,7 @@ HiMind creates a living map of organizational expertise by observing actual work
   - Technologies mentioned (languages, frameworks, tools)
   - Business domains (payments, auth, infrastructure)
   - Problem types (debugging, architecture, performance)
+  - Other emerging abstract topic "clusters"
 
 - **Confidence Levels:** Each expertise mapping has a confidence score based on amount and quality of evidence
 
@@ -161,7 +161,8 @@ HiMind creates a living map of organizational expertise by observing actual work
 
 ### Outbound (Where HiMind sends notifications)
 
-- Slack DM to identified expert
+- Slack DM through a bot to identified expert.
+  Answers to the bot enters the public knowledge pool
 - Email for async responses
 - Calendar integration for scheduling
 - Ticket creation in Jira/Linear for complex issues
@@ -183,7 +184,7 @@ HiMind creates a living map of organizational expertise by observing actual work
 
 ### Business Impact
 
-- **Onboarding Velocity:** Time for new hires to stop asking basic questions
+- **Onboarding Velocity:** New hires receive instant answers to basic questions
 - **Interruption Reduction:** Decrease in random DMs to senior staff
 - **Knowledge Retention:** Expertise maintained when employees leave
 
