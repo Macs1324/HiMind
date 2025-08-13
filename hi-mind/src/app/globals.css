@@ -105,7 +105,22 @@
   * {
     @apply border-border outline-ring/50;
   }
+  
+  html {
+    @apply h-full;
+  }
+  
   body {
-    @apply bg-background text-foreground;
+    @apply h-full bg-background text-foreground overflow-hidden;
+  }
+  
+  /* Prevent horizontal overflow */
+  * {
+    @apply box-border;
+  }
+  
+  /* Ensure no elements cause horizontal scrolling */
+  .container {
+    @apply max-w-full;
   }
 }
