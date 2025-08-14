@@ -1,6 +1,7 @@
 import { SocketModeClient, LogLevel } from "@slack/socket-mode";
 import { WebClient } from "@slack/web-api";
 import { tryCatchWithLoggingAsync } from "@/utils/try-catch";
+import { getSlackConfig } from "./config";
 
 export class SlackBoltApp {
   private socketModeClient: SocketModeClient;
@@ -24,9 +25,172 @@ export class SlackBoltApp {
     this.setupEventHandlers();
   }
 
+  private async sleep(delayMs: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  // Backfill: enumerate channels, fetch history + threads, and log items as they are retrieved
+  public async backfillHistory(): Promise<{
+    success: boolean;
+    details?: unknown;
+  }> {
+    const config = getSlackConfig();
+
+    const [result, error] = await tryCatchWithLoggingAsync(async () => {
+      console.log("📥 [SLACK BACKFILL] Starting backfill...");
+
+      const channelIds: string[] = [];
+      let cursor: string | undefined = undefined;
+
+      // List channels the bot can see; join public channels if configured
+      do {
+        const listResponse = await this.webClient.conversations.list({
+          types: "public_channel,private_channel",
+          exclude_archived: true,
+          limit: 200,
+          cursor,
+        });
+
+        const channels = listResponse.channels ?? [];
+        for (const channel of channels) {
+          const id = channel.id;
+          const isMember = Boolean(channel.is_member);
+          const isPublic = channel.is_channel && !channel.is_private;
+
+          if (!id) continue;
+
+          if (!isMember && isPublic && config.autoJoinChannels) {
+            // Best-effort auto-join public channels
+            await tryCatchWithLoggingAsync(async () => {
+              await this.webClient.conversations.join({ channel: id });
+              console.log("🤝 [SLACK BACKFILL] Joined public channel", id);
+            }, "slack_backfill_join_channel");
+          }
+
+          // Only backfill channels where the bot is a member
+          if (isMember) {
+            channelIds.push(id);
+          }
+        }
+
+        cursor = listResponse.response_metadata?.next_cursor;
+        if (cursor) {
+          await this.sleep(config.rateLimitDelay);
+        }
+      } while (cursor);
+
+      console.log(
+        "📚 [SLACK BACKFILL] Channels to backfill:",
+        channelIds.length,
+      );
+
+      let totalLogged = 0;
+
+      for (const channelId of channelIds) {
+        if (totalLogged >= config.maxBackfillMessages) break;
+
+        let historyCursor: string | undefined = undefined;
+        do {
+          const history = await this.webClient.conversations.history({
+            channel: channelId,
+            limit: 200,
+            cursor: historyCursor,
+          });
+
+          const messages = history.messages ?? [];
+          for (const message of messages) {
+            // Log the base message
+            console.log(
+              JSON.stringify(
+                {
+                  source: "slack",
+                  kind: "message",
+                  channelId,
+                  ts: message.ts,
+                  user: message.user,
+                  name: message.username,
+                  subtype: message.subtype,
+                  text: message.text,
+                },
+                null,
+                2,
+              ),
+            );
+            totalLogged += 1;
+            if (totalLogged >= config.maxBackfillMessages) break;
+
+            // If message has a thread, fetch and log replies
+            if (message.thread_ts) {
+              let repliesCursor: string | undefined = undefined;
+              do {
+                const replies = await this.webClient.conversations.replies({
+                  channel: channelId,
+                  ts: message.thread_ts,
+                  limit: 200,
+                  cursor: repliesCursor,
+                });
+
+                const threadMessages = replies.messages ?? [];
+                for (const reply of threadMessages) {
+                  if (reply.ts === message.ts) continue; // skip parent duplicate
+                  console.log(
+                    JSON.stringify(
+                      {
+                        source: "slack",
+                        kind: "thread_reply",
+                        channelId,
+                        ts: reply.ts,
+                        parentTs: message.thread_ts,
+                        user: reply.user,
+                        text: reply.text,
+                      },
+                      null,
+                      2,
+                    ),
+                  );
+                  totalLogged += 1;
+                  if (totalLogged >= config.maxBackfillMessages) break;
+                }
+
+                repliesCursor = replies.response_metadata?.next_cursor;
+                if (repliesCursor && totalLogged < config.maxBackfillMessages) {
+                  await this.sleep(config.rateLimitDelay);
+                }
+              } while (
+                repliesCursor &&
+                totalLogged < config.maxBackfillMessages
+              );
+            }
+
+            if (totalLogged >= config.maxBackfillMessages) break;
+          }
+
+          historyCursor = history.response_metadata?.next_cursor ?? undefined;
+          if (historyCursor && totalLogged < config.maxBackfillMessages) {
+            await this.sleep(config.rateLimitDelay);
+          }
+        } while (historyCursor && totalLogged < config.maxBackfillMessages);
+
+        if (totalLogged >= config.maxBackfillMessages) break;
+      }
+
+      console.log(
+        `✅ [SLACK BACKFILL] Completed. Logged ${totalLogged} message(s)/reply(ies).`,
+      );
+
+      return { success: true, totalLogged };
+    }, "slack_backfill_history");
+
+    if (error) {
+      console.error("❌ [SLACK BACKFILL] Failed:", error);
+      return { success: false, details: { error: String(error) } };
+    }
+    return { success: true, details: result };
+  }
+
   private setupEventHandlers() {
     // Handle slash commands with proper typing
-    this.socketModeClient.on("slash_commands", async (event: any) => {
+    this.socketModeClient.on("slash_commands", async (event) => {
       const [result, error] = await tryCatchWithLoggingAsync(async () => {
         // Extract command info with proper typing
         const payload = event.payload || event.body;
@@ -60,11 +224,61 @@ export class SlackBoltApp {
             };
           }
 
-          // Create a nice response message
-          const query = text?.trim() || "no query provided";
-          const responseMessage = `🎯 **Query received:** "${query}"\n\n🚧 **Under construction!** 🔨⚡️\n\nThis is your HiMind bot - more features coming soon! 🚀\n\n_Requested by <@${userId}>_`;
+          const query = text?.trim() || "";
 
-          // Send response using tryCatch utility
+          // /himind sync → trigger backfill
+          if (query.toLowerCase().startsWith("sync")) {
+            const startMessage = `🔄 Starting Slack backfill...\n_Requested by <@${userId}>_`;
+
+            // Ack
+            await tryCatchWithLoggingAsync(async () => {
+              await fetch(responseUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  text: startMessage,
+                  response_type: "in_channel",
+                  unfurl_links: false,
+                  unfurl_media: false,
+                }),
+              });
+            }, "send_slash_command_sync_ack");
+
+            // Kick off backfill async
+            void (async () => {
+              const backfill = await this.backfillHistory();
+              const doneMessage = backfill.success
+                ? "✅ Slack backfill completed."
+                : "❌ Slack backfill failed.";
+              await tryCatchWithLoggingAsync(async () => {
+                await fetch(responseUrl, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    text: doneMessage,
+                    response_type: "in_channel",
+                    unfurl_links: false,
+                    unfurl_media: false,
+                  }),
+                });
+              }, "send_slash_command_sync_done");
+            })();
+
+            return {
+              success: true,
+              type: "slash_command",
+              command,
+              text: query,
+              channelId,
+              userId,
+              userName,
+              action: "backfill_started",
+            };
+          }
+
+          // Default ack
+          const responseMessage = `🎯 **Query received:** "${query || "no query provided"}"\n\n_Requested by <@${userId}>_`;
+
           const [response, fetchError] = await tryCatchWithLoggingAsync(
             async () => {
               const response = await fetch(responseUrl, {
