@@ -9,8 +9,8 @@ features:
     always_online: true
   slash_commands:
     - command: /himind
-      description: HiMind bot commands
-      usage_hint: sync|search|help
+      description: AI-powered Slack integration
+      usage_hint: "[query] - Ask HiMind anything"
       should_escape: false
 oauth_config:
   scopes:

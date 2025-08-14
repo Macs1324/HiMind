@@ -12,6 +12,11 @@ import { StatsGrid, StatCard } from "@/components/dashboard/stats-grid"
 import { ContentGrid } from "@/components/dashboard/content-grid"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { initializeSlack } from '@/lib/init-slack';
+
+// Initialize Slack on server startup 
+initializeSlack().catch(console.error);
+
 
 export default function Home() {
   return (
