@@ -26,13 +26,8 @@ export class SlackBoltApp {
 
   private setupEventHandlers() {
     // Handle slash commands with proper typing
-    this.socketModeClient.on("slash_commands", async (event) => {
+    this.socketModeClient.on("slash_commands", async (event: any) => {
       const [result, error] = await tryCatchWithLoggingAsync(async () => {
-        console.log(
-          "🔧 [SLASH COMMAND] Raw event:",
-          JSON.stringify(event, null, 2),
-        );
-
         // Extract command info with proper typing
         const payload = event.payload || event.body;
         if (!payload) {
@@ -51,14 +46,7 @@ export class SlackBoltApp {
         const userId = payload.user_id;
         const userName = payload.user_name;
 
-        console.log("🔧 [SLASH COMMAND] Parsed:", {
-          command,
-          text,
-          responseUrl,
-          channelId,
-          userId,
-          userName,
-        });
+        console.log("🔧 [SLASH COMMAND] Command:", command, "Text:", text);
 
         // Handle /himind command
         if (command === "/himind") {
