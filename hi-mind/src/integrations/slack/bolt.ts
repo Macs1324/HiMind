@@ -3,6 +3,25 @@ import { WebClient } from "@slack/web-api";
 import { tryCatchWithLoggingAsync } from "@/utils/try-catch";
 import { getSlackConfig } from "./config";
 
+interface SlackSlashCommandEvent {
+  payload?: {
+    command: string;
+    text?: string;
+    response_url?: string;
+    channel_id?: string;
+    user_id?: string;
+    user_name?: string;
+  };
+  body?: {
+    command: string;
+    text?: string;
+    response_url?: string;
+    channel_id?: string;
+    user_id?: string;
+    user_name?: string;
+  };
+}
+
 export class SlackBoltApp {
   private socketModeClient: SocketModeClient;
   private webClient: WebClient;
@@ -190,7 +209,7 @@ export class SlackBoltApp {
 
   private setupEventHandlers() {
     // Handle slash commands with proper typing
-    this.socketModeClient.on("slash_commands", async (event: any) => {
+    this.socketModeClient.on("slash_commands", async (event: SlackSlashCommandEvent) => {
       const [result, error] = await tryCatchWithLoggingAsync(async () => {
         // Extract command info with proper typing
         const payload = event.payload || event.body;
