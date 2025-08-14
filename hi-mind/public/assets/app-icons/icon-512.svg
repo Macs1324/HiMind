@@ -1,0 +1,37 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="256" fill="#6366F1"/>
+  
+  <!-- Brain outline -->
+  <path d="M256 85C200 85 156 129 156 185C156 241 200 285 256 285C312 285 356 241 356 185C356 129 312 85 256 85Z" stroke="white" stroke-width="8" fill="none"/>
+  
+  <!-- Brain curves -->
+  <path d="M156 185C156 241 200 285 256 285" stroke="white" stroke-width="8" fill="none"/>
+  <path d="M356 185C356 241 312 285 256 285" stroke="white" stroke-width="8" fill="none"/>
+  
+  <!-- Brain folds -->
+  <path d="M185 228C185 256 214 270 256 270" stroke="white" stroke-width="6" fill="none"/>
+  <path d="M327 228C327 256 298 270 256 270" stroke="white" stroke-width="6" fill="none"/>
+  
+  <!-- Additional brain detail -->
+  <path d="M200 200C200 220 225 235 256 235" stroke="white" stroke-width="4" fill="none"/>
+  <path d="M312 200C312 220 287 235 256 235" stroke="white" stroke-width="4" fill="none"/>
+  
+  <!-- Thought bubbles -->
+  <circle cx="142" cy="142" r="20" fill="white" opacity="0.8"/>
+  <circle cx="370" cy="142" r="15" fill="white" opacity="0.6"/>
+  <circle cx="128" cy="370" r="15" fill="white" opacity="0.6"/>
+  <circle cx="384" cy="370" r="12" fill="white" opacity="0.4"/>
+  
+  <!-- AI/Neural network dots -->
+  <circle cx="214" cy="200" r="6" fill="white"/>
+  <circle cx="298" cy="200" r="6" fill="white"/>
+  <circle cx="256" cy="228" r="6" fill="white"/>
+  <circle cx="228" cy="256" r="6" fill="white"/>
+  <circle cx="284" cy="256" r="6" fill="white"/>
+  <circle cx="242" cy="270" r="4" fill="white"/>
+  <circle cx="270" cy="270" r="4" fill="white"/>
+  
+  <!-- HiMind text -->
+  <text x="256" y="380" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="32" font-weight="bold">HiMind</text>
+</svg>
