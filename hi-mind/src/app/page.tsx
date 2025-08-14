@@ -18,6 +18,12 @@ import { initializeSlack } from '@/lib/init-slack';
 initializeSlack().catch(console.error);
 
 
+import { initializeSlack } from '@/lib/init-slack';
+
+// Initialize Slack on server startup 
+initializeSlack().catch(console.error);
+
+
 export default function Home() {
   return (
     <AppShell>

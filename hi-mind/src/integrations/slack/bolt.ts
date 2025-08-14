@@ -190,7 +190,7 @@ export class SlackBoltApp {
 
   private setupEventHandlers() {
     // Handle slash commands with proper typing
-    this.socketModeClient.on("slash_commands", async (event) => {
+    this.socketModeClient.on("slash_commands", async (event: any) => {
       const [result, error] = await tryCatchWithLoggingAsync(async () => {
         // Extract command info with proper typing
         const payload = event.payload || event.body;
@@ -279,6 +279,7 @@ export class SlackBoltApp {
           // Default ack
           const responseMessage = `🎯 **Query received:** "${query || "no query provided"}"\n\n_Requested by <@${userId}>_`;
 
+          // Send response using tryCatch utility
           const [response, fetchError] = await tryCatchWithLoggingAsync(
             async () => {
               const response = await fetch(responseUrl, {

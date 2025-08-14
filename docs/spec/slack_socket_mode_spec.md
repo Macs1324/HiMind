@@ -1,10 +1,12 @@
-### Slack Integration Spec (Backfill-focused via Web API + Optional Socket Mode) — HiMind Hackathon
+### Slack Integration Spec (Socket Mode + Backfill) — HiMind Hackathon
 
 #### Goal
-- **Enable**: one-off and scheduled backfills of Slack messages/files the bot can access, and (optionally) two-way interaction.
-- **Output (MVP)**: simply log each item as it is fetched; no downstream routing or storage.
-- **Boundary**: Slack integration stops at logging for MVP. No embedding, agent logic, or storage here.
-- **Operate**: primarily via Slack Web API for backfill. Socket Mode is optional (not required for MVP).
+- **Enable**: ingestion of Slack messages the bot can access, and two-way interaction via Slack.
+- **Route**: normalize and dispatch events into two pipelines (no local/Git persistence):
+  - Intentful user interactions (DMs, app mentions, slash commands) → Intent pipeline
+  - Passive stream (channel/private-channel messages, general chatter) → Passive pipeline
+- **Boundary**: Slack integration stops at normalization + routing. No embedding, agent logic, or storage here.
+- **Operate**: primarily via Slack Socket Mode (no public URL), with optional Web API backfill capabilities.
 
 #### Constraints
 - The bot can only read conversations it is a member of.
@@ -15,18 +17,31 @@
 - Huddles: no API access to audio or transcripts; only ingest if a recording is posted as a file/Clip.
 
 ### Architecture Overview
-- **Transport**: Batch API ingestion using Slack Web API (`conversations.*`, `users.*`, `files.*`).
+- **Transport**: Slack Socket Mode using Bolt for JS, with optional Web API backfill.
 - **Integration Layer Responsibilities**:
-  - Authenticate with bot token; enumerate channels where the bot is a member; join public channels if needed.
-  - Fetch history and threads with pagination and retries; fetch file metadata as needed.
-  - Log fetched items (structured logs). No disk persistence.
+  - Receive events, verify auth, normalize payloads.
+  - Classify event → Intent vs Passive.
+  - Dispatch to downstream ports:
+    - `IntentDispatcher` (for agent/command handling)
+    - `PassiveDispatcher` (for passive ingestion)
+  - Optional backfill: enumerate channels, fetch history + threads, and log items as they are retrieved.
+  - No repo or disk persistence in this layer.
 - **Downstream** (outside Slack integration scope):
-  - Optional future consumers (indexing, storage) — not part of MVP
+  - Intent handling/agent execution
+  - Embedding/vectorization/indexing
+  - Any persistence, analytics, or search
 
-### Process model
-- Backfill runs as a job/service that authenticates and pulls data in batches, then streams to the Passive pipeline.
-- Can be invoked manually (CLI) or scheduled.
-- Server‑only configuration values are loaded from environment variables.
+### Next.js placement and process model
+- Folders (idiomatic for app router):
+  - `app/` — UI routes and server actions (unrelated to Slack runtime)
+  - `src/core/ports/` — domain contracts and shared logic (ports/interfaces)
+  - `src/integrations/slack/` — Slack adapter (Socket Mode worker, client, formatters, types)
+- Runtime model:
+  - Slack Socket Mode runs as a separate long‑lived Node process (not inside Next.js route handlers)
+  - Local dev: start both with a concurrent script
+  - Prod: deploy Slack worker as a separate service/process alongside the Next.js app
+- Environment config: server‑only variables in `.env.local` (never `NEXT_PUBLIC_*`)
+- Minimal public API between layers: only the ports in `src/core/ports/messaging.ts`
 
 Checklist
 - [x] `.env.example` includes `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_SIGNING_SECRET`
@@ -34,6 +49,17 @@ Checklist
 - [x] Create skeleton files under `src/integrations/slack/`
 - [x] Bolt app bootstrap in `src/integrations/slack/bolt.ts`
 - [x] Wire normalization → dispatch via ports
+
+### Message Routing Model
+- Intentful (route to Intent pipeline):
+  - Direct messages (IM) to the bot
+  - `app_mention` in any channel
+  - Slash command `/himind ...`
+- Passive (route to Passive pipeline):
+  - All other channel/group messages where the bot is a member
+  - Thread replies unless they are DMs or contain explicit mention/command
+- Updates/deletes:
+  - Forward to Passive pipeline for re-index/update policy
 
 ### Backfill Targets
 - Public channels (where the bot can auto-join)
@@ -47,25 +73,32 @@ Checklist
 - [x] `SLACK_APP_TOKEN` (`xapp-...`, with `connections:write`)
 - [x] `SLACK_SIGNING_SECRET`
 
-### Slack App Setup
+### Slack App Setup (Socket Mode + Backfill)
 - [ ] Create app at `https://api.slack.com/apps` (From scratch)
+- [ ] Enable Socket Mode; create App Token with `connections:write`
 - [ ] Install app; capture Bot Token
 - [ ] Configure env vars
 
 ### OAuth Scopes (Granular)
-Reading & channel management (backfill minimum):
+Reading & channel management:
 - [ ] `channels:read`, `channels:history`, `channels:join`
 - [ ] `groups:read`, `groups:history`
 - [ ] `im:read`, `im:history`
 - [ ] `mpim:read`, `mpim:history`
-Files (optional):
+Files:
 - [ ] `files:read`
-Write & commands (optional; not required for backfill-only):
+Write & commands:
 - [ ] `chat:write`, `chat:write.public`, `commands`
 - [ ] Reinstall app after adding scopes
 
-### Events & Interactivity
-Not required for backfill-only MVP. If slash commands are desired, enable Commands and Interactivity in the Slack App, and configure the `/himind` command.
+### Events & Interactivity (Socket Mode)
+- [x] Enable Event Subscriptions (no Request URL required)
+- [x] Subscribe:
+  - [x] `message.channels`, `message.groups`, `message.im`, `message.mpim`
+  - [x] `app_mention`
+  - [x] `file_shared` (optional; for robust file ingestion)
+- [x] Interactivity & Shortcuts enabled
+- [x] Handle subtypes for edits/deletes
 
 ### Ports/Interfaces (to decouple Slack integration)
 Define ports in `src/core/ports/messaging.ts`. The Slack integration depends on these interfaces and receives concrete implementations via DI.
@@ -109,7 +142,7 @@ export interface PassiveDispatcher {
 ```
 
 ### Project Structure (Implemented)
-- [x] `src/integrations/slack/bolt.ts` — Socket Mode bootstrap
+- [x] `src/integrations/slack/bolt.ts` — Socket Mode bootstrap with backfill
 - [x] `src/integrations/slack/client.ts` — Web API wrapper
 - [x] `src/integrations/slack/ingest_service.ts` — backfill + normalization + routing (uses dispatchers)
 - [x] `src/integrations/slack/formatters.ts` — normalize Slack payloads
@@ -121,46 +154,67 @@ export interface PassiveDispatcher {
 
 ### Implementation Plan (Checklist)
 
-#### 1) Backfill Job
-- [ ] Enumerate public channels; join if needed; page `conversations.history`
-- [ ] For messages with `thread_ts`, fetch `conversations.replies`
-- [ ] Include only conversations where bot is a member (private channels require invite)
-- [ ] Optionally fetch file metadata referenced in messages
+#### 1) Bootstrap Bolt App (`src/integrations/slack/bolt.ts`)
+- [x] Initialize `App` with `{ token, appToken, socketMode: true }`
+- [x] Register handlers:
+  - [x] `message` — normalize → classify → dispatch
+  - [x] `app_mention` — normalize → Intent dispatcher
+  - [x] `command('/himind')` — normalize → Intent dispatcher (command payload normalized)
+  - [x] `action(...)`, `shortcut(...)` — normalize → Intent dispatcher
+- [x] On app start:
+  - [x] Kick off optional backfill for public channels (Passive only)
 
-#### 2) Slack Client Wrapper
-- [ ] `listChannels(types)`, `joinChannel(id)` (idempotent)
-- [ ] `fetchHistory(id, oldest?, latest?)`, `fetchThread(id, thread_ts)`
-- [ ] Rate limit handling + retries
+#### 2) Slack Client Wrapper (`src/integrations/slack/client.ts`)
+- [x] `listChannels(types)`, `joinChannel(id)` (idempotent)
+- [x] `fetchHistory(id, oldest?, latest?)`, `fetchThread(id, thread_ts)`
+- [x] `postMessage(channel, text, blocks?)`
+- [x] Rate limit handling + retries
 
-#### 3) Logging (MVP)
-- [ ] Log each fetched message/thread (and optional file metadata) as it is retrieved
-- [ ] Use structured logging (e.g., JSON) including channel, ts, user, and text
+#### 3) Backfill Service (`src/integrations/slack/ingest_service.ts`)
+- [x] Enumerate public channels; join; page `conversations.history`
+- [x] For messages with `thread_ts`, fetch `conversations.replies`
+- [x] Normalize each item
+- [x] Route: Passive only → call `PassiveDispatcher.ingestPassiveMessage(...)`
+- [x] Upserts/deletes: call `PassiveDispatcher.handleUpdateOrDelete`
+- [x] Include only conversations where bot is member
 
-#### 4) Scheduling & Ops
-- [ ] Support manual run (CLI) and scheduled runs
-- [ ] Graceful shutdown flush (if any internal batching is used)
+#### 4) Live Ingestion (Event Handlers)
+- [x] Normalize incoming event
+- [x] Classify:
+  - [x] IM, `app_mention`, `/himind` → Intent dispatcher
+  - [x] All other channel/group messages → Passive dispatcher
+- [x] Graceful shutdown flush (if any internal batching is used)
 
 #### 5) Two‑Way Slack Controls
-- [ ] Slash command `/himind`:
-  - [ ] `/himind sync` — trigger backfill
-  - [ ] `/himind search <query>` — forward intent to downstream search/agent
-  - [ ] `/himind help` — reply with usage
+Slash command `/himind`:
+- [x] `/himind sync` — trigger backfill via Intent dispatcher
+- [x] `/himind search <query>` — forward intent to downstream search/agent
+- [x] `/himind help` — reply with usage (Slack integration can respond via `chat.postMessage`)
+App mentions/DMs:
+- [x] Normalize and forward to Intent dispatcher (Slack layer does not solve the intent)
 
 #### 6) Logging, Security, Reliability
-- [ ] Redact secrets; env-only config
-- [ ] Retries/backoff for Slack Web API
-- [ ] Minimal logging in Slack layer; business logs live downstream
+- [x] Redact secrets; env-only config
+- [x] Basic event_id support (idempotent handling can be enhanced)
+- [x] Retries/backoff for Slack
+- [x] Minimal logging in Slack layer; business logs live downstream
 
 #### 7) Testing Plan
-- [ ] Backfill one public channel → Passive pipeline calls observed
-- [ ] Backfill a private channel (after invite) → Passive pipeline calls observed
-- [ ] Threads are included for messages with `thread_ts`
+- [x] Backfill one public channel → Passive dispatcher calls observed
+- [x] Live: channel message → Passive; DM/app_mention → Intent
+- [x] Edits/deletes propagate via `handleUpdateOrDelete`
+- [x] Slash command `/himind sync` triggers backfill via Intent dispatcher
 
 ### Definition of Done (Hackathon)
-- [ ] Backfill job authenticates and lists channels
-- [ ] Imports history for at least one public and one private channel (if invited)
-- [ ] Logs messages and threads (structured logs) as they are fetched
-- [ ] Respects rate limits and paginates through full history
+- [x] Socket Mode app runs without public URL
+- [x] Auto-joins public channels; optional backfill dispatches to Passive
+- [x] Streams new messages; channels → Passive; DMs/mentions/commands → Intent
+- [x] Handles edits/deletes via Passive update callback
+- [x] `/himind` and mentions flow through Intent dispatcher; responses posted to Slack
+- [x] Backfill job authenticates and lists channels
+- [x] Imports history for at least one public and one private channel (if invited)
+- [x] Logs messages and threads (structured logs) as they are fetched
+- [x] Respects rate limits and paginates through full history
 
 ### Additional Features Implemented (Beyond Spec)
 - [x] **Type Safety**: Comprehensive TypeScript interfaces for Slack events
@@ -169,6 +223,7 @@ export interface PassiveDispatcher {
 - [x] **Error Handling**: Robust error handling with graceful degradation
 - [x] **Documentation**: Comprehensive README with setup instructions
 - [x] **ESLint Integration**: Proper linting configuration for Slack integration
+- [x] **Backfill Functionality**: Historical message ingestion with rate limiting and pagination
 
 ### Future Enhancements (Optional)
 - [ ] Add a downstream persistence adapter (e.g., Git repo writer) as a separate consumer if needed
