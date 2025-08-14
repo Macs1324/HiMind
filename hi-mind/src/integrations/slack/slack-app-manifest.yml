@@ -1,0 +1,52 @@
+display_information:
+  name: HiMind Bot
+  description: AI-powered Slack integration for intelligent message processing and search
+  background_color: "#2c2d30"
+  long_description: "HiMind Bot processes Slack messages through intelligent pipelines, providing context-aware search and automated message classification. It automatically ingests channel messages and responds to user interactions through a sophisticated intent system."
+features:
+  bot_user:
+    display_name: HiMind Bot
+    always_online: true
+  slash_commands:
+    - command: /himind
+      description: HiMind bot commands
+      usage_hint: sync|search|help
+      should_escape: false
+oauth_config:
+  scopes:
+    bot:
+      # Reading & channel management (from spec)
+      - channels:read
+      - channels:history
+      - channels:join
+      - groups:read
+      - groups:history
+      - im:read
+      - im:history
+      - mpim:read
+      - mpim:history
+      # Files (from spec)
+      - files:read
+      # Write & commands (from spec)
+      - chat:write
+      - chat:write.public
+      - commands
+      # Additional scopes for app_mention functionality
+      - app_mentions:read
+      - users:read
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false
+  interactivity:
+    is_enabled: true
+  event_subscriptions:
+    bot_events:
+      # Core message events (from spec)
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+      # App interaction events (from spec)
+      - app_mention
+      - file_shared

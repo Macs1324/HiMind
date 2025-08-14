@@ -3,13 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently \"next dev\" \"npm run slack:dev\"",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "slack:dev": "tsx watch src/integrations/slack/worker.ts",
+    "slack:start": "tsx src/integrations/slack/worker.ts"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.3",
+    "@slack/bolt": "^3.17.1",
     "@supabase/supabase-js": "^2.55.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -26,10 +29,12 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.1.0",
     "eslint": "^9",
     "eslint-config-next": "15.4.6",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.6",
+    "tsx": "^4.19.2",
     "typescript": "^5"
   }
 }
