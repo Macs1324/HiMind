@@ -155,28 +155,107 @@ export class KnowledgeEngine {
     // 2. Log the search query
     await this.logSearchQuery(query, queryEmbedding, organizationId);
 
-    // 3. Find similar knowledge points
-    const { data: knowledgeMatches } = await this.supabase
+    // 3. Find similar knowledge points (get more candidates for LLM ranking)
+    const { data: rawKnowledgeMatches } = await this.supabase
       .rpc('find_similar_knowledge', {
         query_embedding: `[${queryEmbedding.join(',')}]`,
         org_id: organizationId,
         similarity_threshold: 0.1,
-        result_limit: 10
+        result_limit: 15  // Get more candidates for LLM to choose from
       });
 
-    // 4. Find relevant topics and their experts
+    // 4. Use LLM to intelligently rank and select top 3 most relevant results
+    const rankedKnowledgeMatches = await this.rankResultsWithLLM(query, rawKnowledgeMatches || []);
+
+    // 5. Find relevant topics and their experts
     const topicMatches = await this.findRelevantTopics(queryEmbedding, organizationId);
     const suggestedExperts = await this.findTopicExperts(topicMatches, 5);
 
     const result: QueryResult = {
       query,
-      knowledgeMatches: knowledgeMatches || [],
+      knowledgeMatches: rankedKnowledgeMatches,
       suggestedExperts,
       topicMatches: topicMatches.map(t => t.name)
     };
 
-    console.log(`📊 [KNOWLEDGE ENGINE] Found ${result.knowledgeMatches.length} knowledge matches, ${result.suggestedExperts.length} expert suggestions`);
+    console.log(`📊 [KNOWLEDGE ENGINE] Found ${rawKnowledgeMatches?.length || 0} initial matches, LLM selected ${rankedKnowledgeMatches.length} top results, ${result.suggestedExperts.length} expert suggestions`);
     return result;
+  }
+
+  /**
+   * Use LLM to intelligently rank and select the most relevant results
+   */
+  private async rankResultsWithLLM(query: string, candidates: any[]): Promise<KnowledgeMatch[]> {
+    if (!candidates || candidates.length === 0) {
+      return [];
+    }
+
+    // If we have 3 or fewer candidates, return them all
+    if (candidates.length <= 3) {
+      return candidates;
+    }
+
+    try {
+      console.log(`🤖 [KNOWLEDGE ENGINE] LLM ranking ${candidates.length} candidates for query: "${query}"`);
+
+      // Prepare the prompt for LLM ranking
+      const candidatesText = candidates.map((match, index) => 
+        `${index + 1}. "${match.summary}" (Platform: ${match.platform}, Similarity: ${Math.round(match.similarity_score * 100)}%)`
+      ).join('\n');
+
+      const prompt = `You are an intelligent search result ranker. Given a user's question and a list of potentially relevant results, select and rank the TOP 3 most relevant results that best answer the question.
+
+User Question: "${query}"
+
+Available Results:
+${candidatesText}
+
+Instructions:
+1. Analyze each result's relevance to the user's specific question
+2. Consider context, specificity, and usefulness
+3. Select ONLY the 3 most relevant results
+4. Rank them from most relevant (1) to least relevant (3)
+5. Respond with ONLY the numbers (1-${candidates.length}) of your selected results, separated by commas
+6. Example response format: "3,7,1" (meaning results 3, 7, and 1 in that order)
+
+Your selection (numbers only):`;
+
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 50,
+        temperature: 0.1, // Low temperature for consistent ranking
+      });
+
+      const selection = response.choices[0]?.message?.content?.trim();
+      if (!selection) {
+        console.log(`⚠️ [KNOWLEDGE ENGINE] LLM ranking failed, falling back to similarity order`);
+        return candidates.slice(0, 3);
+      }
+
+      // Parse the LLM's selection
+      const selectedIndices = selection.split(',')
+        .map(num => parseInt(num.trim()) - 1) // Convert to 0-based indices
+        .filter(index => index >= 0 && index < candidates.length);
+
+      // If we got valid selections, use them; otherwise fallback
+      if (selectedIndices.length >= 1) {
+        const rankedResults = selectedIndices
+          .slice(0, 3) // Take max 3
+          .map(index => candidates[index]);
+        
+        console.log(`✅ [KNOWLEDGE ENGINE] LLM selected ${rankedResults.length} results: [${selectedIndices.map(i => i + 1).join(', ')}]`);
+        return rankedResults;
+      } else {
+        console.log(`⚠️ [KNOWLEDGE ENGINE] Invalid LLM selection "${selection}", falling back to similarity order`);
+        return candidates.slice(0, 3);
+      }
+
+    } catch (error) {
+      console.error(`❌ [KNOWLEDGE ENGINE] LLM ranking error:`, error);
+      // Fallback to simple similarity-based ranking
+      return candidates.slice(0, 3);
+    }
   }
 
   /**

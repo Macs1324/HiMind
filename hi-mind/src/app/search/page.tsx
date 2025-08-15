@@ -131,14 +131,19 @@ export default function SearchPage() {
             {results.knowledgeMatches.length > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>💡 Knowledge Sources</CardTitle>
+                  <CardTitle className="flex items-center gap-2">
+                    <span>🎯 Top Knowledge Sources</span>
+                    <Badge variant="outline" className="text-xs bg-[#a3be8c]/10 text-[#a3be8c] border-[#a3be8c]/20">
+                      AI-Ranked
+                    </Badge>
+                  </CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    Found {results.knowledgeMatches.length} relevant discussions • Click any result to open source
+                    {results.knowledgeMatches.length} most relevant discussions selected by AI • Click any result to open source
                   </p>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {results.knowledgeMatches.map((match) => (
+                    {results.knowledgeMatches.map((match, index) => (
                       <div 
                         key={match.knowledge_point_id}
                         className="group border rounded-lg hover:shadow-md hover:border-[#5e81ac]/50 transition-all duration-200 cursor-pointer bg-card hover:bg-[#88c0d0]/10"
@@ -147,6 +152,13 @@ export default function SearchPage() {
                       >
                         <div className="p-4">
                           <div className="flex items-start gap-3">
+                            {/* Ranking Badge */}
+                            <div className="flex-shrink-0">
+                              <div className="w-6 h-6 rounded-full bg-[#5e81ac] text-white text-xs font-bold flex items-center justify-center">
+                                {index + 1}
+                              </div>
+                            </div>
+                            
                             {/* Platform Icon */}
                             <div className="flex-shrink-0 mt-1">
                               {getPlatformIcon(match.platform)}
