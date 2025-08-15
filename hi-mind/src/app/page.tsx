@@ -1,21 +1,29 @@
-import { 
-  Users, 
-  TrendingUp, 
-  FileText, 
+import {
+  Users,
+  TrendingUp,
+  FileText,
   BarChart3,
   Plus,
-  Filter
-} from "lucide-react"
-import { AppShell } from "@/components/layout/app-shell"
-import { PageHeader } from "@/components/dashboard/page-header"
-import { StatsGrid, StatCard } from "@/components/dashboard/stats-grid"
-import { ContentGrid } from "@/components/dashboard/content-grid"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { initializeSlack } from '@/lib/init-slack';
+  Filter,
+} from "lucide-react";
+import { AppShell } from "@/components/layout/app-shell";
+import { PageHeader } from "@/components/dashboard/page-header";
+import { StatsGrid, StatCard } from "@/components/dashboard/stats-grid";
+import { ContentGrid } from "@/components/dashboard/content-grid";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { initializeSlack } from "@/lib/init-slack";
+import { startGitHubIntegration } from "@/integrations/github";
 
-// Initialize Slack on server startup 
+// Initialize Slack on server startup
 initializeSlack().catch(console.error);
+startGitHubIntegration().catch(console.error);
 
 export default function Home() {
   return (
@@ -82,7 +90,7 @@ export default function Home() {
                   "Project Alpha was updated",
                   "New user registered",
                   "Document uploaded",
-                  "Team meeting scheduled"
+                  "Team meeting scheduled",
                 ].map((activity, i) => (
                   <div key={i} className="flex items-center space-x-4">
                     <div className="h-2 w-2 rounded-full bg-primary" />
@@ -96,9 +104,7 @@ export default function Home() {
           <Card>
             <CardHeader>
               <CardTitle>Quick Actions</CardTitle>
-              <CardDescription>
-                Common tasks and shortcuts
-              </CardDescription>
+              <CardDescription>Common tasks and shortcuts</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-2">
@@ -120,5 +126,5 @@ export default function Home() {
         </ContentGrid>
       </div>
     </AppShell>
-  )
+  );
 }
