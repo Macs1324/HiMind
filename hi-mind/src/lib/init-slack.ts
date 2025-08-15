@@ -1,4 +1,4 @@
-import { startSlackIntegration } from "@/integrations/slack/nextjs-integration";
+import { startSlackIntegration } from "@/integrations/slack";
 
 // This runs once when the server starts
 let slackInitialized = false;
