@@ -25,12 +25,15 @@ export class SlackServiceImpl implements SlackService {
     // Log the message
     await this.repository.logMessage(channelId, userId, text, timestamp);
     
+    // Create message-specific Slack URL with timestamp
+    const messageUrl = `https://himindworkspace.slack.com/archives/${channelId}/p${timestamp.replace('.', '')}`;
+    
     // Process content through knowledge engine
     await this.processSlackContent({
       platform: 'slack',
       sourceType: 'slack_message',
       externalId: `${channelId}_${timestamp}`,
-      externalUrl: `https://slack.com/channels/${channelId}`,
+      externalUrl: messageUrl,
       content: text,
       authorExternalId: userId,
       platformCreatedAt: new Date(parseFloat(timestamp) * 1000).toISOString()

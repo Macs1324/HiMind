@@ -173,11 +173,14 @@ export class SlackBackfill {
    */
   private async processMessage(message: any, channelId: string, organizationId: string): Promise<void> {
     try {
+      // Create message-specific Slack URL with timestamp
+      const messageUrl = `https://himindworkspace.slack.com/archives/${channelId}/p${message.ts.replace('.', '')}`;
+      
       await getKnowledgeEngine().ingestKnowledgeSource({
         platform: 'slack',
         sourceType: 'slack_message',
         externalId: `${channelId}_${message.ts}`,
-        externalUrl: `https://slack.com/channels/${channelId}`,
+        externalUrl: messageUrl,
         content: message.text,
         authorExternalId: message.user,
         platformCreatedAt: new Date(parseFloat(message.ts) * 1000).toISOString()
