@@ -21,8 +21,7 @@ import { Button } from "@/components/ui/button";
 import { initializeSlack } from "@/lib/init-slack";
 import { startGitHubIntegration } from "@/integrations/github";
 
-// Initialize Slack on server startup
-initializeSlack().catch(console.error);
+initializeSlack().catch(console.error)
 startGitHubIntegration().catch(console.error);
 
 export default function Home() {

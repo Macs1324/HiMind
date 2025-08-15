@@ -1,93 +1,141 @@
-# GitHub Integration
+# GitHub Integration - Controller/Service Architecture
 
-This integration enables one-off and scheduled backfills of GitHub repository activity using Personal Access Token authentication.
+This directory contains the refactored GitHub integration following a clean separation of concerns pattern.
 
-## Features
+## Architecture Overview
 
-- **Simple Authentication**: Uses Personal Access Token for direct API access
-- **Historical Backfill**: Imports issues, PRs, and commits with pagination
-- **Rate Limit Handling**: Implements simple backoff to respect GitHub API limits
-- **Minimal Configuration**: Just one token and target repository needed
-
-## Setup
-
-### 1. Create a Personal Access Token
-
-1. Go to [GitHub Settings → Developer settings → Personal access tokens](https://github.com/settings/tokens)
-2. Click "Generate new token (classic)"
-3. Give it a name like "HiMind Integration"
-4. Choose scopes:
-   - **`repo`** (for private repositories)
-   - **`public_repo`** (for public repositories only)
-5. Copy the generated token
-
-### 2. Environment Variables
-
-Add these to your `.env` file:
-
-```bash
-# Required
-GITHUB_TOKEN=ghp_your_personal_access_token_here
-
-# Configuration (optional)
-GITHUB_BACKFILL_DELAY=5000
-GITHUB_RATE_LIMIT_DELAY=1000
-
-# Target repository (format: "owner/repo")
-GITHUB_REPOSITORY="johndoe/my-repo"
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    CONTROLLER LAYER                        │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │              GitHubController                        │   │
+│  │  • Entry points for all GitHub operations           │   │
+│  │  • Request routing and validation                   │   │
+│  │  • Orchestrates service calls                       │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    SERVICE LAYER                           │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │              GitHubService                           │   │
+│  │  • Business logic for GitHub resources              │   │
+│  │  • Data transformation and normalization            │   │
+│  │  • Event processing and validation                  │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   REPOSITORY LAYER                        │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │              EventRepository                         │   │
+│  │  • Data persistence operations                      │   │
+│  │  • Supabase integration                             │   │
+│  │  • Event storage and retrieval                      │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### 3. Install Dependencies
+## File Structure
 
-```bash
-npm install @octokit/rest
-```
+- **`github.controller.ts`** - Entry points for all GitHub operations
+- **`github.service.ts`** - Business logic and data processing
+- **`github-api-client.ts`** - GitHub API client for data fetching
+- **`integration.ts`** - Main integration setup and dependency injection
+- **`index.ts`** - Public exports and types
 
-## Usage
+## Key Benefits
 
-### Automatic Integration (Recommended)
+1. **Clear Separation of Concerns**
+   - Controllers handle entry points and routing
+   - Services contain business logic
+   - Repositories handle data persistence
+
+2. **Simplified Configuration**
+   - No complex options or parameters
+   - Always fetches everything from configured repository
+   - Simple environment variable setup
+
+3. **Testability**
+   - Each layer can be tested independently
+   - Easy to mock dependencies
+   - Clear interfaces between layers
+
+4. **Maintainability**
+   - Single responsibility per class
+   - Easy to add new features
+   - Clear dependency flow
+
+5. **Next.js Integration**
+   - Follows Next.js API route patterns
+   - Easy to expose as REST endpoints
+   - Server actions integration ready
+
+## Usage Examples
+
+### From Page Components
 
 ```typescript
+// app/page.tsx
 import { startGitHubIntegration } from '@/integrations/github';
 
-// Start the GitHub integration (will auto-backfill configured repositories)
-await startGitHubIntegration();
+// Initialize on startup
+startGitHubIntegration().catch(console.error);
 ```
 
-### Manual Control
+### From Direct Integration
 
 ```typescript
-import { SimpleGitHubClient } from '@/integrations/github';
+// app/actions/github.ts
+'use server'
 
-const client = new SimpleGitHubClient();
+import { triggerGitHubBackfill } from '@/integrations/github';
 
-// Start the integration
-await client.start();
-
-// Run backfill manually
-await client.runBackfill();
-
-// Stop the integration
-client.stop();
+export async function runGitHubBackfill(owner: string, repo: string) {
+  return await triggerGitHubBackfill(owner, repo);
+}
 ```
 
-## Architecture
+### Direct Integration
 
-- **Transport**: Batch API ingestion using Personal Access Token authentication
-- **Integration Layer**: Authenticates, fetches historical resources, and prepares for Passive pipeline
-- **No Persistence**: This layer only routes data, no local storage
+```typescript
+import { getGitHubController } from '@/integrations/github';
 
-## Rate Limits
+const controller = getGitHubController();
+if (controller) {
+  await controller.triggerBackfill({ owner: 'johndoe', repo: 'my-repo' });
+}
+```
 
-The integration respects GitHub's API rate limits by:
-- Implementing simple backoff between requests
-- Using pagination to fetch all resources
-- Simple token-based authentication
+const controller = getGitHubController();
+if (controller) {
+  const result = await controller.triggerBackfill({
+    owner: 'username',
+    repo: 'repository',
+    includeIssues: true,
+    includeCommits: true
+  });
+}
+```
 
 ## Next Steps
 
-- [ ] Add support for comments and reviews
-- [ ] Integrate with Passive pipeline for data dispatch
-- [ ] Add incremental sync capabilities
-- [ ] Implement webhook support for real-time updates
-- [ ] Add organization-level backfill support
+1. **Refactor Slack Integration** - Apply the same pattern
+2. **Implement Real Data Fetching** - Replace placeholder methods in controller
+3. **Add Error Handling** - Implement proper error boundaries
+4. **Add Validation** - Input validation and sanitization
+5. **Add Logging** - Structured logging for debugging
+6. **Add Tests** - Unit tests for each layer
+
+## Dependencies
+
+- `@/utils/try-catch` - Error handling utility
+- `@/services/event.repository` - Data persistence interface
+- `@/utils/supabase/server` - Supabase client creation
+
+## Environment Variables
+
+- `GITHUB_TOKEN` - GitHub personal access token
+- `GITHUB_TARGET_REPOSITORY` - Default repository for backfill (optional)
