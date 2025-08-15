@@ -231,7 +231,7 @@ BEGIN
     kp.id,
     ks.id,
     kp.summary,
-    1 - (kp.embedding <=> query_embedding) as similarity_score,
+    (1 - (kp.embedding <=> query_embedding))::real as similarity_score,
     ks.external_url,
     ks.title,
     p.display_name
@@ -239,7 +239,7 @@ BEGIN
   JOIN knowledge_sources ks ON kp.source_id = ks.id
   LEFT JOIN people p ON ks.author_person_id = p.id
   WHERE ks.organization_id = org_id
-    AND 1 - (kp.embedding <=> query_embedding) > similarity_threshold
+    AND (1 - (kp.embedding <=> query_embedding)) > similarity_threshold
   ORDER BY similarity_score DESC
   LIMIT result_limit;
 END $$;

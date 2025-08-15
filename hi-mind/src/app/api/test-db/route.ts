@@ -15,26 +15,55 @@ export async function GET(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseKey)
     
-    // Simple health check query
-    const { data, error } = await supabase
-      .from('organizations')
-      .select('id')
+    // Check knowledge sources and points counts
+    const [
+      { count: sourcesCount },
+      { count: pointsCount }
+    ] = await Promise.all([
+      supabase.from('knowledge_sources').select('*', { count: 'exact', head: true }),
+      supabase.from('knowledge_points').select('*', { count: 'exact', head: true })
+    ])
+
+    // Get a sample knowledge source
+    const { data: sampleSource } = await supabase
+      .from('knowledge_sources')
+      .select('id, platform, source_type, title, content')
       .limit(1)
+      .single()
 
-    console.log('Query result:', { data, error })
+    // Check if there are any knowledge points
+    const { data: samplePoint } = await supabase
+      .from('knowledge_points')
+      .select('id, source_id, summary, quality_score')
+      .limit(1)
+      .single()
 
-    if (error) {
-      return NextResponse.json({
-        success: false,
-        error: error.message,
-        details: error
-      })
-    }
+    // Test the search function directly
+    const testEmbedding = new Array(1536).fill(0.1); // Simple test vector
+    const { data: searchResult, error: searchError } = await supabase
+      .rpc('find_similar_knowledge', {
+        query_embedding: `[${testEmbedding.join(',')}]`,
+        org_id: '9c353c02-5f78-44d0-a701-481cccc4f4dd', 
+        similarity_threshold: 0.1,
+        result_limit: 3
+      });
 
     return NextResponse.json({
       success: true,
-      message: 'Database connection successful',
-      data: data || []
+      message: 'Database analysis complete',
+      counts: {
+        knowledge_sources: sourcesCount,
+        knowledge_points: pointsCount
+      },
+      samples: {
+        source: sampleSource,
+        point: samplePoint
+      },
+      searchTest: {
+        result: searchResult,
+        error: searchError,
+        testEmbedding: testEmbedding.slice(0, 5) // Just first 5 values for display
+      }
     })
 
   } catch (error) {

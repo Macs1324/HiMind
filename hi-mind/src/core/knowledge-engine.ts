@@ -158,9 +158,9 @@ export class KnowledgeEngine {
     // 3. Find similar knowledge points
     const { data: knowledgeMatches } = await this.supabase
       .rpc('find_similar_knowledge', {
-        query_embedding: queryEmbedding,
+        query_embedding: `[${queryEmbedding.join(',')}]`,
         org_id: organizationId,
-        similarity_threshold: 0.7,
+        similarity_threshold: 0.1,
         result_limit: 10
       });
 
@@ -386,7 +386,7 @@ export class KnowledgeEngine {
       .insert({
         organization_id: organizationId,
         query_text: query,
-        query_embedding: embedding
+        query_embedding: `[${embedding.join(',')}]`
       });
   }
 
