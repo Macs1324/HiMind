@@ -1,4 +1,7 @@
 import type { SlackRepository } from "./slack.repository";
+import { type KnowledgeSource } from "@/core/knowledge-engine";
+import { getKnowledgeEngine } from "@/core/knowledge-engine-singleton";
+import { getCurrentOrganization } from "@/lib/organization";
 
 export interface SlackService {
   handleMessage(channelId: string, userId: string, text: string, timestamp: string): Promise<void>;
@@ -22,8 +25,19 @@ export class SlackServiceImpl implements SlackService {
     // Log the message
     await this.repository.logMessage(channelId, userId, text, timestamp);
     
-    // TODO: Add business logic here (e.g., AI processing, notifications, etc.)
-    // For now, just logging
+    // Create message-specific Slack URL with timestamp
+    const messageUrl = `https://himindworkspace.slack.com/archives/${channelId}/p${timestamp.replace('.', '')}`;
+    
+    // Process content through knowledge engine
+    await this.processSlackContent({
+      platform: 'slack',
+      sourceType: 'slack_message',
+      externalId: `${channelId}_${timestamp}`,
+      externalUrl: messageUrl,
+      content: text,
+      authorExternalId: userId,
+      platformCreatedAt: new Date(parseFloat(timestamp) * 1000).toISOString()
+    });
   }
 
   async handleReaction(channelId: string, userId: string, reaction: string, timestamp: string): Promise<void> {
@@ -94,16 +108,32 @@ export class SlackServiceImpl implements SlackService {
     // Log the backfill message
     await this.repository.logBackfillMessage(channelId, userId, text, timestamp);
     
-    // TODO: Add business logic here (e.g., data processing, analytics, etc.)
-    // For now, just logging
+    // Process backfilled content
+    await this.processSlackContent({
+      platform: 'slack',
+      sourceType: 'slack_message',
+      externalId: `${channelId}_${timestamp}_backfill`,
+      externalUrl: `https://slack.com/channels/${channelId}`,
+      content: text,
+      authorExternalId: userId,
+      platformCreatedAt: new Date(parseFloat(timestamp) * 1000).toISOString()
+    });
   }
 
   async handleBackfillThreadReply(channelId: string, userId: string, text: string, timestamp: string): Promise<void> {
     // Log the backfill thread reply
     await this.repository.logBackfillThreadReply(channelId, userId, text, timestamp);
     
-    // TODO: Add business logic here (e.g., data processing, analytics, etc.)
-    // For now, just logging
+    // Process thread reply
+    await this.processSlackContent({
+      platform: 'slack',
+      sourceType: 'slack_thread',
+      externalId: `${channelId}_${timestamp}_thread`,
+      externalUrl: `https://slack.com/channels/${channelId}`,
+      content: text,
+      authorExternalId: userId,
+      platformCreatedAt: new Date(parseFloat(timestamp) * 1000).toISOString()
+    });
   }
 
   async handleGenericEvent(eventType: string, channelId: string, userId: string, timestamp: string, data?: unknown): Promise<void> {
@@ -112,5 +142,29 @@ export class SlackServiceImpl implements SlackService {
     
     // TODO: Add business logic here (e.g., event processing, analytics, etc.)
     // For now, just logging
+  }
+
+  private async processSlackContent(source: KnowledgeSource): Promise<void> {
+    try {
+      // Skip processing very short messages or bot messages
+      if (source.content.length < 20 || source.content.includes('<@U') || source.content.startsWith('!')) {
+        console.log(`⏭️ [SLACK SERVICE] Skipping short/bot message: ${source.externalId}`);
+        return;
+      }
+
+      // Get current organization
+      const org = await getCurrentOrganization();
+      if (!org) {
+        console.error('❌ [SLACK SERVICE] No organization found. Please create one first.');
+        return;
+      }
+
+      await getKnowledgeEngine().ingestKnowledgeSource(source, org.id);
+      console.log(`✅ [SLACK SERVICE] Processed ${source.sourceType}: ${source.externalId}`);
+      
+    } catch (error) {
+      console.error(`❌ [SLACK SERVICE] Failed to process content ${source.externalId}:`, error);
+      // Don't throw - we want Slack events to continue processing even if knowledge processing fails
+    }
   }
 }

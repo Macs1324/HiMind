@@ -3,11 +3,11 @@
 import * as React from "react"
 import { 
   Home, 
-  Settings, 
   Users, 
-  FileText, 
-  BarChart3,
-  X 
+  Search,
+  Brain,
+  X,
+  Wrench
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -27,10 +27,10 @@ interface NavItem {
 
 const navigation: NavItem[] = [
   { title: "Dashboard", icon: Home, href: "/" },
-  { title: "Analytics", icon: BarChart3, href: "/analytics" },
-  { title: "Documents", icon: FileText, href: "/documents" },
-  { title: "Team", icon: Users, href: "/team" },
-  { title: "Settings", icon: Settings, href: "/settings" },
+  { title: "Search Knowledge", icon: Search, href: "/search" },
+  { title: "Topics", icon: Brain, href: "/topics" },
+  { title: "People", icon: Users, href: "/people" },
+  { title: "Setup", icon: Wrench, href: "/setup" },
 ]
 
 export function AppSidebar({ open, onOpenChange, className }: AppSidebarProps) {

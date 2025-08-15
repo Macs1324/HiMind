@@ -18,11 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { initializeSlack } from "@/lib/init-slack";
-import { startGitHubIntegration } from "@/integrations/github";
-
-initializeSlack().catch(console.error)
-startGitHubIntegration().catch(console.error);
+// All integrations are now initialized in /lib/startup.ts
 
 export default function Home() {
   return (

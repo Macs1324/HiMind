@@ -35,7 +35,13 @@ In fast-moving startups:
 
 ## 🛠 Tech Stack
 
-TBD
+- **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS
+- **UI Components**: shadcn/ui, Radix UI, Lucide React
+- **Backend**: Next.js API Routes, Supabase
+- **Database**: PostgreSQL (Supabase)
+- **Authentication**: Supabase Auth
+- **Integrations**: Slack Web API, Slack Socket Mode
+- **Development**: ESLint, TypeScript, Docker
 
 ## 📂 Project Structure
 

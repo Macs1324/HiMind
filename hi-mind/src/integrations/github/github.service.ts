@@ -1,5 +1,8 @@
 import { tryCatchWithLoggingAsync } from "@/utils/try-catch";
 import { EventRepository, type GitHubEvent } from "@/integrations/github/github.repository";
+import { type KnowledgeSource } from "@/core/knowledge-engine";
+import { getKnowledgeEngine } from "@/core/knowledge-engine-singleton";
+import { getCurrentOrganization } from "@/lib/organization";
 
 // GitHub API types - using the actual Octokit response types
 import type { RestEndpointMethodTypes } from "@octokit/rest";
@@ -55,6 +58,18 @@ export class GitHubService {
       // Save to repository
       await this.eventRepository.saveGitHubEvent(event);
       
+      // Process content through knowledge engine
+      await this.processGitHubContent({
+        platform: 'github',
+        sourceType: issue.pull_request ? 'github_pr' : 'github_issue',
+        externalId: issue.id.toString(),
+        externalUrl: issue.html_url,
+        title: issue.title,
+        content: issue.body || '',
+        authorExternalId: issue.user?.login || 'unknown',
+        platformCreatedAt: issue.created_at
+      });
+      
       console.log(`📝 [GITHUB SERVICE] Processed ${event.type}: #${issue.number} - ${issue.title}`);
       
       return event;
@@ -95,6 +110,20 @@ export class GitHubService {
 
       // Save to repository
       await this.eventRepository.saveGitHubEvent(event);
+      
+      // Process meaningful commit content
+      if (commit.commit.message.length > 20) {
+        await this.processGitHubContent({
+          platform: 'github',
+          sourceType: 'github_comment', // Use comment type for commits
+          externalId: commit.sha,
+          externalUrl: commit.html_url,
+          title: event.title,
+          content: commit.commit.message,
+          authorExternalId: commit.author?.login || commit.commit.author?.name || 'unknown',
+          platformCreatedAt: commit.commit.author?.date || commit.commit.committer?.date || ''
+        });
+      }
       
       console.log(`📝 [GITHUB SERVICE] Processed commit: ${(commit.sha as string).substring(0, 8)} - ${event.title}`);
       
@@ -197,5 +226,33 @@ export class GitHubService {
     }
 
     return result;
+  }
+
+  private async processGitHubContent(source: KnowledgeSource): Promise<void> {
+    try {
+      // Skip processing very short content or automated commits
+      if (source.content.length < 15 || 
+          source.content.includes('Merge pull request') ||
+          source.content.includes('dependabot') ||
+          source.content.startsWith('chore:') ||
+          source.content.startsWith('ci:')) {
+        console.log(`⏭️ [GITHUB SERVICE] Skipping short/automated content: ${source.externalId}`);
+        return;
+      }
+
+      // Get current organization
+      const org = await getCurrentOrganization();
+      if (!org) {
+        console.error('❌ [GITHUB SERVICE] No organization found. Please create one first.');
+        return;
+      }
+
+      await getKnowledgeEngine().ingestKnowledgeSource(source, org.id);
+      console.log(`📋 [GITHUB SERVICE] Processed ${source.sourceType} content: ${source.externalId}`);
+      
+    } catch (error) {
+      console.error(`❌ [GITHUB SERVICE] Failed to process content ${source.externalId}:`, error);
+      // Don't throw - we want GitHub events to continue processing even if processing fails
+    }
   }
 }
