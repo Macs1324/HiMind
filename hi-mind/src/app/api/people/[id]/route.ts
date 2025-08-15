@@ -3,10 +3,10 @@ import { getSupabaseClient } from "@/lib/database"
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params
+    const { id } = await params
     const body = await request.json()
     const { display_name, email, role, is_active } = body
 
@@ -52,10 +52,10 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params
+    const { id } = await params
     const supabase = getSupabaseClient(true)
     
     // Delete the person (external identities will be cascade deleted)

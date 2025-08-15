@@ -97,32 +97,6 @@ export function OrganizationSetup() {
     }
   }
 
-  const createSampleData = async () => {
-    try {
-      setCreating(true)
-      setMessage(null)
-
-      const response = await fetch('/api/sample-data-management', {
-        method: 'POST',
-      })
-
-      const data = await response.json()
-
-      if (response.ok) {
-        setMessage({ 
-          type: 'success', 
-          text: `Sample data created! ${data.people_created} people added.` 
-        })
-      } else {
-        setMessage({ type: 'error', text: data.error || 'Failed to create sample data' })
-      }
-    } catch (error) {
-      console.error('Failed to create sample data:', error)
-      setMessage({ type: 'error', text: 'Failed to create sample data' })
-    } finally {
-      setCreating(false)
-    }
-  }
 
   const resetDatabase = async () => {
     if (!confirm('Are you sure you want to reset the database? This will delete all data.')) {
@@ -286,31 +260,6 @@ export function OrganizationSetup() {
         </Card>
       ) : (
         <div className="grid gap-6 sm:grid-cols-2">
-          {/* Sample Data */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Users className="h-5 w-5" />
-                <span>Sample Data</span>
-              </CardTitle>
-              <CardDescription>
-                Add sample people and topics to test the system
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button 
-                onClick={createSampleData} 
-                disabled={creating}
-                className="w-full"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                {creating ? "Creating..." : "Create Sample Data"}
-              </Button>
-              <p className="text-xs text-muted-foreground mt-2">
-                Adds sample people with Slack/GitHub identities and topics
-              </p>
-            </CardContent>
-          </Card>
 
           {/* Database Management */}
           <Card>

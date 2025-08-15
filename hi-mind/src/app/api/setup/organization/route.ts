@@ -4,7 +4,7 @@ import { getSupabaseClient } from "@/lib/database"
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, slug, settings } = body
+    const { name, slug } = body
 
     if (!name || !slug) {
       return NextResponse.json(
@@ -34,8 +34,7 @@ export async function POST(request: NextRequest) {
       .from('organizations')
       .insert({
         name,
-        slug,
-        settings: settings || {}
+        slug
       })
       .select()
       .single()
