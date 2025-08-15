@@ -44,13 +44,106 @@ export interface EnhancedTopicDetection extends TopicDetection {
 }
 
 export class EnhancedTopicExtractor {
-  private nlpService: NLPService
+  private nlpService?: NLPService
   private topicVocabulary: Map<string, TopicCandidate> = new Map()
   private cooccurrenceMatrix: Map<string, Map<string, number>> = new Map()
 
-  constructor(nlpService: NLPService) {
+  constructor(nlpService?: NLPService) {
     this.nlpService = nlpService
     this.initializeTopicVocabulary()
+  }
+
+  // Simplified method for content ingestion - doesn't require full NLP pipeline
+  async extractTopicsAndStatements(text: string): Promise<{
+    topics: Array<{ name: string; confidence: number; keywords: string[]; description?: string }>;
+    statements: Array<{ headline: string; content: string; type: string; keywords: string[]; confidence: number }>;
+  }> {
+    // Use simplified extraction methods that don't require NLP service
+    const topics = await this.extractSimplifiedTopics(text);
+    const statements = await this.extractSimplifiedStatements(text);
+    
+    return { topics, statements };
+  }
+
+  private async extractSimplifiedTopics(text: string) {
+    const topics: Array<{ name: string; confidence: number; keywords: string[]; description?: string }> = [];
+    
+    // Use keyword-based extraction without requiring embeddings
+    const keywordTopics = await this.extractKeywordBasedTopics(
+      this.extractTechnicalTerms(text),
+      this.extractKeyPhrases(text)
+    );
+    
+    return keywordTopics.map(topic => ({
+      name: topic.name,
+      confidence: topic.confidence,
+      keywords: topic.keywords,
+      description: topic.reasoning
+    }));
+  }
+
+  private async extractSimplifiedStatements(text: string) {
+    const statements: Array<{ headline: string; content: string; type: string; keywords: string[]; confidence: number }> = [];
+    
+    // Split into sentences and analyze
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 30);
+    
+    for (const sentence of sentences.slice(0, 3)) { // Limit to 3 statements
+      const trimmed = sentence.trim();
+      const type = this.determineContentType(trimmed);
+      const keywords = this.extractTechnicalTerms(trimmed);
+      const headline = this.generateHeadline(trimmed);
+      const confidence = this.calculateConfidence(trimmed);
+      
+      statements.push({
+        headline,
+        content: trimmed,
+        type,
+        keywords,
+        confidence
+      });
+    }
+    
+    return statements;
+  }
+
+  private extractTechnicalTerms(text: string): string[] {
+    const techTerms = [
+      'react', 'vue', 'angular', 'javascript', 'typescript', 'node', 'express',
+      'api', 'rest', 'graphql', 'sql', 'database', 'mongodb', 'postgresql',
+      'docker', 'kubernetes', 'aws', 'azure', 'gcp', 'deployment', 'ci/cd',
+      'auth', 'jwt', 'oauth', 'security', 'token', 'login', 'session'
+    ];
+    
+    const lowerText = text.toLowerCase();
+    return techTerms.filter(term => lowerText.includes(term));
+  }
+
+  private extractKeyPhrases(text: string): Array<{ text: string; score: number }> {
+    // Simple key phrase extraction
+    const phrases = text.split(/[,;]/).map(p => p.trim()).filter(p => p.length > 10);
+    return phrases.slice(0, 5).map(phrase => ({ text: phrase, score: 0.5 }));
+  }
+
+  private determineContentType(text: string): string {
+    const lowerText = text.toLowerCase();
+    if (lowerText.includes('how to') || lowerText.includes('guide')) return 'explanation';
+    if (lowerText.includes('decided') || lowerText.includes('chose')) return 'decision';
+    if (lowerText.includes('fixed') || lowerText.includes('solution')) return 'solution';
+    if (lowerText.includes('should') || lowerText.includes('recommend')) return 'best_practice';
+    return 'explanation';
+  }
+
+  private generateHeadline(text: string): string {
+    const words = text.split(' ').slice(0, 8).join(' ');
+    return words.length > 60 ? words.substring(0, 57) + '...' : words;
+  }
+
+  private calculateConfidence(text: string): number {
+    let confidence = 0.5;
+    if (text.length > 50) confidence += 0.2;
+    if (this.extractTechnicalTerms(text).length > 0) confidence += 0.2;
+    return Math.min(0.9, confidence);
   }
 
   // ===========================

@@ -1,5 +1,7 @@
 import { tryCatchWithLoggingAsync } from "@/utils/try-catch";
 import { EventRepository, type GitHubEvent } from "@/integrations/github/github.repository";
+import { ProcessingOrchestrator } from "@/services/processing-orchestrator";
+import type { ContentSource } from "@/services/content-ingestion.service";
 
 // GitHub API types - using the actual Octokit response types
 import type { RestEndpointMethodTypes } from "@octokit/rest";
@@ -25,6 +27,8 @@ export interface GitHubResource {
 export type ProcessedGitHubEvent = GitHubEvent;
 
 export class GitHubService {
+  private orchestrator = new ProcessingOrchestrator();
+
   constructor(private eventRepository: EventRepository) {}
 
   /**
@@ -54,6 +58,25 @@ export class GitHubService {
 
       // Save to repository
       await this.eventRepository.saveGitHubEvent(event);
+      
+      // Queue content for processing
+      await this.queueGitHubContent({
+        type: issue.pull_request ? 'github_pr' : 'github_issue',
+        externalId: issue.id.toString(),
+        externalUrl: issue.html_url,
+        title: issue.title,
+        body: issue.body || '',
+        authorExternalId: issue.user?.login || 'unknown',
+        authorPlatform: 'github',
+        platformCreatedAt: issue.created_at,
+        rawContent: {
+          number: issue.number,
+          state: issue.state,
+          labels: issue.labels?.map((l) => typeof l === 'string' ? l : l.name).filter(Boolean) || [],
+          assignees: issue.assignees?.map((a) => a.login) || [],
+          repository
+        }
+      }, issue.pull_request ? 'high' : 'normal');
       
       console.log(`📝 [GITHUB SERVICE] Processed ${event.type}: #${issue.number} - ${issue.title}`);
       
@@ -95,6 +118,26 @@ export class GitHubService {
 
       // Save to repository
       await this.eventRepository.saveGitHubEvent(event);
+      
+      // Queue commit content for processing (if meaningful)
+      if (commit.commit.message.length > 20) {
+        await this.queueGitHubContent({
+          type: 'github_commit',
+          externalId: commit.sha,
+          externalUrl: commit.html_url,
+          title: event.title,
+          body: commit.commit.message,
+          authorExternalId: commit.author?.login || commit.commit.author?.name || 'unknown',
+          authorPlatform: 'github',
+          platformCreatedAt: commit.commit.author?.date || commit.commit.committer?.date || '',
+          rawContent: {
+            sha: commit.sha,
+            message: commit.commit.message,
+            stats: commit.stats,
+            repository
+          }
+        }, 'low');
+      }
       
       console.log(`📝 [GITHUB SERVICE] Processed commit: ${(commit.sha as string).substring(0, 8)} - ${event.title}`);
       
@@ -197,5 +240,26 @@ export class GitHubService {
     }
 
     return result;
+  }
+
+  private async queueGitHubContent(source: ContentSource, priority: 'high' | 'normal' | 'low'): Promise<void> {
+    try {
+      // Skip processing very short content or automated commits
+      if (source.body.length < 15 || 
+          source.body.includes('Merge pull request') ||
+          source.body.includes('dependabot') ||
+          source.body.startsWith('chore:') ||
+          source.body.startsWith('ci:')) {
+        console.log(`⏭️ [GITHUB SERVICE] Skipping short/automated content: ${source.externalId}`);
+        return;
+      }
+
+      const jobId = await this.orchestrator.queueContent(source, priority);
+      console.log(`📋 [GITHUB SERVICE] Queued ${source.type} for processing: ${jobId}`);
+      
+    } catch (error) {
+      console.error(`❌ [GITHUB SERVICE] Failed to queue content ${source.externalId}:`, error);
+      // Don't throw - we want GitHub events to continue processing even if queueing fails
+    }
   }
 }

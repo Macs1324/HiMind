@@ -1,4 +1,6 @@
 import type { SlackRepository } from "./slack.repository";
+import { ProcessingOrchestrator } from "@/services/processing-orchestrator";
+import type { ContentSource } from "@/services/content-ingestion.service";
 
 export interface SlackService {
   handleMessage(channelId: string, userId: string, text: string, timestamp: string): Promise<void>;
@@ -16,14 +18,30 @@ export interface SlackService {
 }
 
 export class SlackServiceImpl implements SlackService {
+  private orchestrator = new ProcessingOrchestrator();
+
   constructor(private readonly repository: SlackRepository) {}
 
   async handleMessage(channelId: string, userId: string, text: string, timestamp: string): Promise<void> {
     // Log the message
     await this.repository.logMessage(channelId, userId, text, timestamp);
     
-    // TODO: Add business logic here (e.g., AI processing, notifications, etc.)
-    // For now, just logging
+    // Queue content for processing
+    await this.queueSlackContent({
+      type: 'slack_message',
+      externalId: `${channelId}_${timestamp}`,
+      externalUrl: `https://slack.com/channels/${channelId}`,
+      body: text,
+      authorExternalId: userId,
+      authorPlatform: 'slack',
+      platformCreatedAt: new Date(parseFloat(timestamp) * 1000).toISOString(),
+      rawContent: {
+        channel_id: channelId,
+        user_id: userId,
+        timestamp,
+        message_type: 'message'
+      }
+    }, 'normal');
   }
 
   async handleReaction(channelId: string, userId: string, reaction: string, timestamp: string): Promise<void> {
@@ -94,16 +112,44 @@ export class SlackServiceImpl implements SlackService {
     // Log the backfill message
     await this.repository.logBackfillMessage(channelId, userId, text, timestamp);
     
-    // TODO: Add business logic here (e.g., data processing, analytics, etc.)
-    // For now, just logging
+    // Queue backfilled content for processing
+    await this.queueSlackContent({
+      type: 'slack_message',
+      externalId: `${channelId}_${timestamp}_backfill`,
+      externalUrl: `https://slack.com/channels/${channelId}`,
+      body: text,
+      authorExternalId: userId,
+      authorPlatform: 'slack',
+      platformCreatedAt: new Date(parseFloat(timestamp) * 1000).toISOString(),
+      rawContent: {
+        channel_id: channelId,
+        user_id: userId,
+        timestamp,
+        message_type: 'backfill'
+      }
+    }, 'low');
   }
 
   async handleBackfillThreadReply(channelId: string, userId: string, text: string, timestamp: string): Promise<void> {
     // Log the backfill thread reply
     await this.repository.logBackfillThreadReply(channelId, userId, text, timestamp);
     
-    // TODO: Add business logic here (e.g., data processing, analytics, etc.)
-    // For now, just logging
+    // Queue thread reply for processing
+    await this.queueSlackContent({
+      type: 'slack_thread',
+      externalId: `${channelId}_${timestamp}_thread`,
+      externalUrl: `https://slack.com/channels/${channelId}`,
+      body: text,
+      authorExternalId: userId,
+      authorPlatform: 'slack',
+      platformCreatedAt: new Date(parseFloat(timestamp) * 1000).toISOString(),
+      rawContent: {
+        channel_id: channelId,
+        user_id: userId,
+        timestamp,
+        message_type: 'thread_reply'
+      }
+    }, 'normal');
   }
 
   async handleGenericEvent(eventType: string, channelId: string, userId: string, timestamp: string, data?: unknown): Promise<void> {
@@ -112,5 +158,22 @@ export class SlackServiceImpl implements SlackService {
     
     // TODO: Add business logic here (e.g., event processing, analytics, etc.)
     // For now, just logging
+  }
+
+  private async queueSlackContent(source: ContentSource, priority: 'high' | 'normal' | 'low'): Promise<void> {
+    try {
+      // Skip processing very short messages or bot messages
+      if (source.body.length < 10 || source.body.includes('<@U') || source.body.startsWith('!')) {
+        console.log(`⏭️ [SLACK SERVICE] Skipping short/bot message: ${source.externalId}`);
+        return;
+      }
+
+      const jobId = await this.orchestrator.queueContent(source, priority);
+      console.log(`📋 [SLACK SERVICE] Queued ${source.type} for processing: ${jobId}`);
+      
+    } catch (error) {
+      console.error(`❌ [SLACK SERVICE] Failed to queue content ${source.externalId}:`, error);
+      // Don't throw - we want Slack events to continue processing even if queueing fails
+    }
   }
 }
