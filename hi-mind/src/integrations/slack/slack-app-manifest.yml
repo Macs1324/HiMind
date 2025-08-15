@@ -34,6 +34,7 @@ oauth_config:
       # Additional scopes for app_mention functionality
       - app_mentions:read
       - users:read
+      - users:read.email
 settings:
   org_deploy_enabled: false
   socket_mode_enabled: true

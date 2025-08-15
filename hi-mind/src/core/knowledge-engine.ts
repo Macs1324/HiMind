@@ -87,7 +87,13 @@ export class KnowledgeEngine {
   async ingestKnowledgeSource(source: KnowledgeSource, organizationId: string): Promise<string> {
     console.log(`🧠 [KNOWLEDGE ENGINE] Ingesting ${source.platform}:${source.sourceType} - ${source.externalId}`);
 
-    // 1. Store the raw knowledge source
+    // 1. Try to resolve author first to get person_id
+    let authorPersonId: string | null = null;
+    if (source.authorExternalId && source.platform) {
+      authorPersonId = await this.getOrCreateAuthorPerson(source, organizationId);
+    }
+
+    // 2. Store the raw knowledge source
     const { data: knowledgeSource, error: sourceError } = await this.supabase
       .from('knowledge_sources')
       .upsert({
@@ -99,6 +105,7 @@ export class KnowledgeEngine {
         title: source.title,
         content: source.content,
         author_external_id: source.authorExternalId,
+        author_person_id: authorPersonId,
         platform_created_at: source.platformCreatedAt
       }, { 
         onConflict: 'organization_id,platform,external_id'
@@ -141,6 +148,291 @@ export class KnowledgeEngine {
 
     console.log(`✅ [KNOWLEDGE ENGINE] Processed knowledge point: ${knowledgePoint.id}`);
     return knowledgePoint.id;
+  }
+
+  /**
+   * Get or create person for author, using email-based matching
+   */
+  private async getOrCreateAuthorPerson(source: KnowledgeSource, organizationId: string): Promise<string | null> {
+    if (!source.authorExternalId || !source.platform) {
+      return null;
+    }
+
+    try {
+      console.log(`🔍 [KNOWLEDGE ENGINE] Resolving author for ${source.platform}:${source.authorExternalId}`);
+
+      // Check if we already have this external identity linked
+      const { data: existingIdentity } = await this.supabase
+        .from('external_identities')
+        .select('person_id, people(*)')
+        .eq('platform', source.platform)
+        .eq('external_id', source.authorExternalId)
+        .single();
+
+      if (existingIdentity) {
+        console.log(`✅ [KNOWLEDGE ENGINE] Author already linked to person: ${existingIdentity.people?.display_name}`);
+        return existingIdentity.person_id;
+      }
+
+      // Fetch user email from platform
+      let userEmail: string | null = null;
+      let displayName: string | null = null;
+      let username: string | null = null;
+
+      if (source.platform === 'slack') {
+        const slackInfo = await this.fetchSlackUserInfo(source.authorExternalId);
+        userEmail = slackInfo?.email || null;
+        displayName = slackInfo?.displayName || null;
+        username = slackInfo?.username || null;
+      } else if (source.platform === 'github') {
+        const githubInfo = await this.fetchGithubUserInfo(source.authorExternalId);
+        userEmail = githubInfo?.email || null;
+        displayName = githubInfo?.displayName || null;
+        username = githubInfo?.username || null;
+      }
+
+      if (!userEmail) {
+        console.log(`⚠️ [KNOWLEDGE ENGINE] No email found for ${source.platform}:${source.authorExternalId}. Creating person without email for manual linking later.`);
+        
+        // Try to find existing person by fuzzy name matching before creating new one
+        if (displayName) {
+          const peopleService = new (await import('@/lib/database')).PeopleService(this.supabase);
+          
+          // Check for existing person with similar name
+          const existingPerson = await this.findPersonByFuzzyNameMatch(displayName, organizationId);
+          
+          if (existingPerson) {
+            console.log(`🔗 [KNOWLEDGE ENGINE] Found existing person by name match: "${displayName}" → "${existingPerson.display_name}"`);
+            
+            // Create external identity link to existing person
+            await peopleService.createExternalIdentity(
+              existingPerson.id,
+              source.platform as 'slack' | 'github',
+              source.authorExternalId,
+              username || undefined
+            );
+            
+            console.log(`✅ [KNOWLEDGE ENGINE] Linked ${source.platform} identity to existing person (fuzzy name match)`);
+            return existingPerson.id;
+          } else {
+            // Create new person since no match found
+            const { data: newPerson } = await peopleService.createPerson(
+              organizationId, 
+              displayName,
+              undefined // no email
+            );
+            
+            if (newPerson) {
+              console.log(`👤 [KNOWLEDGE ENGINE] Created new person: ${newPerson.display_name}`);
+              
+              // Create external identity link
+              await peopleService.createExternalIdentity(
+                newPerson.id,
+                source.platform as 'slack' | 'github',
+                source.authorExternalId,
+                username || undefined
+              );
+              
+              console.log(`🔗 [KNOWLEDGE ENGINE] Linked ${source.platform} identity to new person`);
+              return newPerson.id;
+            }
+          }
+        }
+        
+        return null;
+      }
+
+      // Try to find existing person by email
+      const peopleService = new (await import('@/lib/database')).PeopleService(this.supabase);
+      const { data: existingPerson } = await peopleService.getPersonByEmail(userEmail, organizationId);
+
+      let personId: string;
+
+      if (existingPerson) {
+        // Link to existing person
+        personId = existingPerson.id;
+        console.log(`🔗 [KNOWLEDGE ENGINE] Linking ${source.platform} identity to existing person: ${existingPerson.display_name} (${userEmail})`);
+      } else {
+        // Create new person
+        const { data: newPerson } = await peopleService.createPerson(
+          organizationId, 
+          displayName || username || `${source.platform} User`,
+          userEmail
+        );
+        
+        if (!newPerson) {
+          console.error(`❌ [KNOWLEDGE ENGINE] Failed to create person for ${userEmail}`);
+          return null;
+        }
+
+        personId = newPerson.id;
+        console.log(`👤 [KNOWLEDGE ENGINE] Created new person: ${newPerson.display_name} (${userEmail})`);
+      }
+
+      // Create external identity link
+      await peopleService.createExternalIdentity(
+        personId,
+        source.platform as 'slack' | 'github',
+        source.authorExternalId,
+        username || undefined
+      );
+
+      console.log(`✅ [KNOWLEDGE ENGINE] Successfully linked ${source.platform}:${source.authorExternalId} to person`);
+      return personId;
+
+    } catch (error) {
+      console.error(`❌ [KNOWLEDGE ENGINE] Failed to resolve author by email:`, error);
+      // Don't throw - continue processing even if author resolution fails
+      return null;
+    }
+  }
+
+  /**
+   * Fetch Slack user information including email
+   */
+  private async fetchSlackUserInfo(userId: string): Promise<{ email?: string; displayName?: string; username?: string } | null> {
+    try {
+      // We need access to Slack WebClient - let's use the config to create one
+      const { getSlackConfig } = await import('@/integrations/slack/config');
+      const { WebClient } = await import('@slack/web-api');
+      
+      const config = getSlackConfig();
+      const client = new WebClient(config.botToken);
+
+      const result = await client.users.info({ user: userId });
+      
+      if (result.ok && result.user) {
+        return {
+          email: result.user.profile?.email,
+          displayName: result.user.profile?.display_name || result.user.profile?.real_name,
+          username: result.user.name
+        };
+      }
+    } catch (error) {
+      console.error(`❌ [KNOWLEDGE ENGINE] Failed to fetch Slack user info for ${userId}:`, error);
+    }
+    return null;
+  }
+
+  /**
+   * Fetch GitHub user information including email
+   */
+  private async fetchGithubUserInfo(userId: string): Promise<{ email?: string; displayName?: string; username?: string } | null> {
+    try {
+      console.log(`🔍 [KNOWLEDGE ENGINE] Fetching GitHub user info for: ${userId}`);
+      
+      const { Octokit } = await import('@octokit/rest');
+      
+      if (!process.env.GITHUB_TOKEN) {
+        console.log(`⚠️ [KNOWLEDGE ENGINE] GITHUB_TOKEN not set, cannot fetch user info`);
+        return null;
+      }
+      
+      const octokit = new Octokit({
+        auth: process.env.GITHUB_TOKEN,
+      });
+
+      const result = await octokit.rest.users.getByUsername({ username: userId });
+      
+      if (result.data) {
+        return {
+          email: result.data.email, // May be null if private
+          displayName: result.data.name,
+          username: result.data.login
+        };
+      }
+    } catch (error) {
+      console.error(`❌ [KNOWLEDGE ENGINE] Failed to fetch GitHub user info for ${userId}:`, error);
+    }
+    return null;
+  }
+
+  /**
+   * Find existing person by fuzzy name matching to prevent duplicates
+   */
+  private async findPersonByFuzzyNameMatch(targetName: string, organizationId: string): Promise<any | null> {
+    try {
+      // Get all people in the organization
+      const { data: people } = await this.supabase
+        .from('people')
+        .select('*')
+        .eq('organization_id', organizationId);
+
+      if (!people || people.length === 0) {
+        return null;
+      }
+
+      const normalizedTarget = this.normalizeName(targetName);
+      
+      // Find exact normalized match first
+      const exactMatch = people.find(person => 
+        this.normalizeName(person.display_name) === normalizedTarget
+      );
+
+      if (exactMatch) {
+        return exactMatch;
+      }
+
+      // Find fuzzy matches with similarity scoring
+      const fuzzyMatches = people.map(person => ({
+        person,
+        similarity: this.calculateNameSimilarity(normalizedTarget, this.normalizeName(person.display_name))
+      }))
+      .filter(match => match.similarity > 0.8) // High threshold for confidence
+      .sort((a, b) => b.similarity - a.similarity);
+
+      return fuzzyMatches.length > 0 ? fuzzyMatches[0].person : null;
+
+    } catch (error) {
+      console.error(`❌ [KNOWLEDGE ENGINE] Fuzzy name matching failed:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Normalize name for comparison
+   */
+  private normalizeName(name: string): string {
+    return name
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s]/g, '') // Remove special characters
+      .replace(/\s+/g, ' '); // Normalize spaces
+  }
+
+  /**
+   * Calculate similarity between two normalized names
+   */
+  private calculateNameSimilarity(name1: string, name2: string): number {
+    // Simple Levenshtein distance-based similarity
+    const maxLength = Math.max(name1.length, name2.length);
+    if (maxLength === 0) return 1; // Both empty
+    
+    const distance = this.levenshteinDistance(name1, name2);
+    return 1 - (distance / maxLength);
+  }
+
+  /**
+   * Calculate Levenshtein distance between two strings
+   */
+  private levenshteinDistance(str1: string, str2: string): number {
+    const matrix = Array(str2.length + 1).fill(null).map(() => Array(str1.length + 1).fill(null));
+
+    for (let i = 0; i <= str1.length; i++) matrix[0][i] = i;
+    for (let j = 0; j <= str2.length; j++) matrix[j][0] = j;
+
+    for (let j = 1; j <= str2.length; j++) {
+      for (let i = 1; i <= str1.length; i++) {
+        const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
+        matrix[j][i] = Math.min(
+          matrix[j][i - 1] + 1, // deletion
+          matrix[j - 1][i] + 1, // insertion
+          matrix[j - 1][i - 1] + indicator // substitution
+        );
+      }
+    }
+
+    return matrix[str2.length][str1.length];
   }
 
   /**
@@ -478,12 +770,12 @@ Your selection (numbers only):`;
     if (!topics) return [];
 
     return topics
-      .map(topic => ({
+      .map((topic: any) => ({
         ...topic,
         similarity: topic.cluster_centroid ? this.cosineSimilarity(queryEmbedding, topic.cluster_centroid) : 0
       }))
-      .filter(topic => topic.similarity > 0.6)
-      .sort((a, b) => b.similarity - a.similarity)
+      .filter((topic: any) => topic.similarity > 0.6)
+      .sort((a: any, b: any) => b.similarity - a.similarity)
       .slice(0, 3);
   }
 
