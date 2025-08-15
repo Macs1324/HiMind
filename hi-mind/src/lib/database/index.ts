@@ -21,6 +21,23 @@ type SupabaseClient = ReturnType<typeof createClient>
 // ===========================
 
 export const getSupabaseClient = (serverSide = false) => {
+  // If we have a service role key and are on server side, use service client
+  if (serverSide && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    // Check if we're in a request context
+    try {
+      // Try to access cookies to see if we're in a request context
+      const { cookies } = require('next/headers');
+      cookies();
+      // We're in a request context, use server client with cookies
+      return createServerClient();
+    } catch {
+      // We're not in a request context (background process, Knowledge Engine, etc.)
+      // Use service client instead
+      const { createServiceClient } = require('@/utils/supabase/service');
+      return createServiceClient();
+    }
+  }
+  
   return serverSide ? createServerClient() : createClient()
 }
 

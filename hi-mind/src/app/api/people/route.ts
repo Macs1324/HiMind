@@ -55,7 +55,6 @@ export async function POST(request: NextRequest) {
     const { 
       display_name, 
       email, 
-      role = 'member',
       slack_username,
       slack_id,
       github_username,
@@ -85,15 +84,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create the person
+    // Create the person (simplified schema - only basic fields)
     const { data: person, error: personError } = await supabase
       .from('people')
       .insert({
         organization_id: organization.id,
         display_name,
-        email,
-        role,
-        is_active: true
+        email
       })
       .select()
       .single()
