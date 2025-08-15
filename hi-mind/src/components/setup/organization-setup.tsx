@@ -24,6 +24,7 @@ import {
   MessageSquare,
   Github,
   UserPlus,
+  Target,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -42,6 +43,7 @@ export function OrganizationSetup() {
   const [backfilling, setBackfilling] = useState(false)
   const [githubBackfilling, setGithubBackfilling] = useState(false)
   const [consolidating, setConsolidating] = useState(false)
+  const [discoveringTopics, setDiscoveringTopics] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const [formData, setFormData] = useState({
@@ -203,6 +205,36 @@ export function OrganizationSetup() {
       setMessage({ type: 'error', text: 'Failed to consolidate people' })
     } finally {
       setConsolidating(false)
+    }
+  }
+
+  const discoverTopics = async () => {
+    try {
+      setDiscoveringTopics(true)
+      setMessage(null)
+
+      const response = await fetch('/api/topics/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          minClusterSize: 3,
+          maxClusters: 15,
+          similarityThreshold: 0.7
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setMessage({ type: 'success', text: data.message || 'Topic discovery completed successfully!' })
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to discover topics' })
+      }
+    } catch (error) {
+      console.error('Failed to discover topics:', error)
+      setMessage({ type: 'error', text: 'Failed to discover topics' })
+    } finally {
+      setDiscoveringTopics(false)
     }
   }
 
@@ -433,7 +465,7 @@ export function OrganizationSetup() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
               <Button variant="outline" className="justify-start w-full" asChild>
                 <a href="/people">
                   <Users className="mr-2 h-4 w-4" />
@@ -444,10 +476,19 @@ export function OrganizationSetup() {
                 variant="outline" 
                 className="justify-start w-full" 
                 onClick={consolidatePeople}
-                disabled={consolidating || creating || backfilling || githubBackfilling}
+                disabled={consolidating || creating || backfilling || githubBackfilling || discoveringTopics}
               >
                 <UserPlus className={cn("mr-2 h-4 w-4", consolidating && "animate-pulse")} />
                 {consolidating ? "Consolidating..." : "Merge Duplicates"}
+              </Button>
+              <Button 
+                variant="outline" 
+                className="justify-start w-full" 
+                onClick={discoverTopics}
+                disabled={discoveringTopics || creating || backfilling || githubBackfilling || consolidating}
+              >
+                <Target className={cn("mr-2 h-4 w-4", discoveringTopics && "animate-spin")} />
+                {discoveringTopics ? "Discovering..." : "Discover Topics"}
               </Button>
               <Button variant="outline" className="justify-start w-full" asChild>
                 <a href="/settings">

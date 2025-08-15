@@ -551,13 +551,30 @@ Your selection (numbers only):`;
   }
 
   /**
-   * Discover new topics from knowledge point clusters
+   * Discover new topics from knowledge point clusters using "centers of mass" approach
    */
-  async discoverTopicClusters(organizationId: string): Promise<void> {
+  async discoverTopicClusters(organizationId: string, options: {
+    minClusterSize?: number;
+    maxClusters?: number;
+    similarityThreshold?: number;
+  } = {}): Promise<{
+    topics: any[];
+    stats: {
+      totalKnowledgePoints: number;
+      clustersFound: number;
+      newTopics: number;
+      updatedTopics: number;
+    };
+  }> {
     console.log(`🎯 [KNOWLEDGE ENGINE] Discovering topic clusters for org: ${organizationId}`);
 
-    // This is where the "centers of mass" magic happens
-    // Get all knowledge points with their embeddings
+    const {
+      minClusterSize = 3,
+      maxClusters = 20,
+      similarityThreshold = 0.7
+    } = options;
+
+    // Get all knowledge points with their embeddings and metadata
     const { data: knowledgePoints } = await this.supabase
       .from('knowledge_points')
       .select(`
@@ -565,29 +582,596 @@ Your selection (numbers only):`;
         embedding,
         summary,
         keywords,
-        knowledge_sources!inner(organization_id)
+        knowledge_sources!inner(
+          organization_id,
+          platform,
+          source_type,
+          external_url,
+          content,
+          people(display_name)
+        )
       `)
       .eq('knowledge_sources.organization_id', organizationId);
 
-    if (!knowledgePoints || knowledgePoints.length < 5) {
-      console.log('Not enough knowledge points for clustering');
-      return;
+    if (!knowledgePoints || knowledgePoints.length < minClusterSize) {
+      console.log(`⚠️ [KNOWLEDGE ENGINE] Not enough knowledge points for clustering (${knowledgePoints?.length || 0} < ${minClusterSize})`);
+      return {
+        topics: [],
+        stats: {
+          totalKnowledgePoints: knowledgePoints?.length || 0,
+          clustersFound: 0,
+          newTopics: 0,
+          updatedTopics: 0
+        }
+      };
     }
 
-    // Use K-means clustering on embeddings to find topic centers
-    const clusters = await this.performEmbeddingClustering(knowledgePoints);
+    console.log(`📊 [KNOWLEDGE ENGINE] Clustering ${knowledgePoints.length} knowledge points...`);
+    console.log(`🔍 [KNOWLEDGE ENGINE] Sample knowledge point structure:`, {
+      id: knowledgePoints[0]?.id,
+      hasEmbedding: !!knowledgePoints[0]?.embedding,
+      embeddingType: typeof knowledgePoints[0]?.embedding,
+      embeddingLength: typeof knowledgePoints[0]?.embedding === 'string' ? knowledgePoints[0]?.embedding?.length : 'N/A',
+      knowledgeSourcesType: typeof knowledgePoints[0]?.knowledge_sources,
+      knowledgeSourcesPlatform: knowledgePoints[0]?.knowledge_sources?.platform
+    });
 
-    // Create/update discovered topics
+    // Perform K-means clustering on embeddings to find topic centers
+    let clusters = [];
+    try {
+      console.log(`🎯 [KNOWLEDGE ENGINE] About to call performEmbeddingClustering...`);
+      clusters = await this.performEmbeddingClustering(knowledgePoints, {
+        minClusterSize,
+        maxClusters,
+        similarityThreshold
+      });
+      console.log(`✅ [KNOWLEDGE ENGINE] performEmbeddingClustering completed successfully`);
+    } catch (error) {
+      console.error(`❌ [KNOWLEDGE ENGINE] performEmbeddingClustering failed:`, error);
+      return {
+        topics: [],
+        stats: {
+          totalKnowledgePoints: knowledgePoints.length,
+          clustersFound: 0,
+          newTopics: 0,
+          updatedTopics: 0
+        }
+      };
+    }
+
+    console.log(`🔍 [KNOWLEDGE ENGINE] Found ${clusters.length} clusters`);
+
+    // Create/update discovered topics with LLM-generated names
+    const results = {
+      newTopics: 0,
+      updatedTopics: 0,
+      topics: []
+    };
+
     for (const cluster of clusters) {
-      await this.createOrUpdateTopic(organizationId, cluster);
+      const topicResult = await this.createOrUpdateTopicFromCluster(organizationId, cluster);
+      if (topicResult) {
+        results.topics.push(topicResult);
+        if (topicResult.isNew) {
+          results.newTopics++;
+        } else {
+          results.updatedTopics++;
+        }
+      }
     }
 
-    console.log(`✨ [KNOWLEDGE ENGINE] Discovered ${clusters.length} topic clusters`);
+    console.log(`✨ [KNOWLEDGE ENGINE] Topic discovery complete: ${results.newTopics} new, ${results.updatedTopics} updated`);
+
+    return {
+      topics: results.topics,
+      stats: {
+        totalKnowledgePoints: knowledgePoints.length,
+        clustersFound: clusters.length,
+        newTopics: results.newTopics,
+        updatedTopics: results.updatedTopics
+      }
+    };
   }
 
   // =========================
-  // Private Helper Methods
+  // Private Helper Methods  
   // =========================
+
+  /**
+   * Perform K-means clustering on knowledge point embeddings
+   */
+  private async performEmbeddingClustering(knowledgePoints: any[], options: {
+    minClusterSize: number;
+    maxClusters: number;
+    similarityThreshold: number;
+  }): Promise<any[]> {
+    console.log(`🚀 [KNOWLEDGE ENGINE] Starting performEmbeddingClustering with ${knowledgePoints.length} knowledge points`);
+    const { minClusterSize, maxClusters } = options;
+
+    // Convert embeddings to arrays of numbers
+    const embeddings = knowledgePoints.map(kp => {
+      try {
+        let embedding;
+        if (typeof kp.embedding === 'string') {
+          // Handle string embeddings - they should already be JSON arrays
+          embedding = JSON.parse(kp.embedding);
+        } else if (Array.isArray(kp.embedding)) {
+          embedding = kp.embedding;
+        } else {
+          console.log(`⚠️ [KNOWLEDGE ENGINE] Unknown embedding format for ${kp.id}:`, typeof kp.embedding);
+          return [];
+        }
+        
+        if (Array.isArray(embedding) && embedding.length === 1536) {
+          return embedding;
+        } else {
+          console.log(`⚠️ [KNOWLEDGE ENGINE] Invalid embedding dimensions for ${kp.id}: ${embedding?.length}`);
+          return [];
+        }
+      } catch (error) {
+        console.error(`❌ [KNOWLEDGE ENGINE] Failed to parse embedding for ${kp.id}:`, error);
+        return [];
+      }
+    }).filter(emb => emb.length > 0);
+
+    if (embeddings.length === 0) {
+      console.log('⚠️ [KNOWLEDGE ENGINE] No valid embeddings found');
+      return [];
+    }
+    
+    console.log(`✅ [KNOWLEDGE ENGINE] Successfully parsed ${embeddings.length} valid embeddings`);
+
+    // Determine optimal number of clusters with content-aware logic
+    const optimalK = this.determineOptimalClusters(embeddings.length, maxClusters, knowledgePoints);
+    
+    console.log(`🎯 [KNOWLEDGE ENGINE] Using ${optimalK} clusters for ${embeddings.length} points`);
+
+    // Perform K-means clustering
+    const clusters = this.kMeansClustering(embeddings, optimalK);
+    
+    console.log(`🎯 [KNOWLEDGE ENGINE] Raw clusters from K-means:`, clusters.map(c => c.length));
+
+    // Map back to knowledge points and filter by minimum size
+    const clustersWithPoints = clusters.map((clusterIndices, clusterIndex) => {
+      console.log(`🔍 [KNOWLEDGE ENGINE] Cluster ${clusterIndex}: ${clusterIndices.length} indices: [${clusterIndices.slice(0, 5).join(', ')}...]`);
+      
+      const points = clusterIndices.map(index => {
+        if (index >= 0 && index < knowledgePoints.length) {
+          return knowledgePoints[index];
+        } else {
+          console.log(`⚠️ [KNOWLEDGE ENGINE] Invalid index ${index} for ${knowledgePoints.length} knowledge points`);
+          return null;
+        }
+      }).filter(Boolean);
+      
+      console.log(`📊 [KNOWLEDGE ENGINE] Cluster ${clusterIndex}: ${clusterIndices.length} indices → ${points.length} valid points`);
+      
+      if (points.length < minClusterSize) {
+        console.log(`❌ [KNOWLEDGE ENGINE] Cluster ${clusterIndex} filtered out: ${points.length} < ${minClusterSize}`);
+        return null;
+      }
+
+      // Calculate cluster centroid
+      const validEmbeddings = clusterIndices
+        .filter(i => i >= 0 && i < embeddings.length)
+        .map(i => embeddings[i]);
+      const centroid = this.calculateCentroid(validEmbeddings);
+
+      console.log(`✅ [KNOWLEDGE ENGINE] Cluster ${clusterIndex}: keeping ${points.length} points`);
+
+      return {
+        id: `cluster_${clusterIndex}`,
+        points,
+        centroid,
+        size: points.length
+      };
+    }).filter(Boolean);
+
+    console.log(`📊 [KNOWLEDGE ENGINE] Filtered to ${clustersWithPoints.length} clusters with min size ${minClusterSize}`);
+
+    return clustersWithPoints;
+  }
+
+  /**
+   * Determine optimal number of clusters based on data size and content diversity
+   */
+  private determineOptimalClusters(dataSize: number, maxClusters: number, knowledgePoints?: any[]): number {
+    // More aggressive clustering for better granularity
+    let baseK = 2;
+    
+    if (dataSize >= 10) baseK = 3;
+    if (dataSize >= 25) baseK = 4;
+    if (dataSize >= 50) baseK = 6;
+    if (dataSize >= 100) baseK = 8;
+    if (dataSize >= 150) baseK = 12;
+    
+    // Platform diversity bonus - if we have multiple platforms, increase clusters
+    if (knowledgePoints) {
+      const platforms = new Set(knowledgePoints.map(kp => kp.knowledge_sources?.platform));
+      const sourceTypes = new Set(knowledgePoints.map(kp => kp.knowledge_sources?.source_type));
+      
+      if (platforms.size > 1) baseK += 2; // Multi-platform bonus
+      if (sourceTypes.size > 2) baseK += 1; // Source type diversity bonus
+      
+      console.log(`🎯 [KNOWLEDGE ENGINE] Platform diversity: ${platforms.size} platforms, ${sourceTypes.size} source types`);
+    }
+    
+    // Cap at maxClusters but be more aggressive
+    return Math.min(baseK, maxClusters);
+  }
+
+  /**
+   * Improved K-means clustering with better initialization
+   */
+  private kMeansClustering(embeddings: number[][], k: number, maxIterations = 100): number[][] {
+    const dimensions = embeddings[0].length;
+    const numPoints = embeddings.length;
+
+    // Use K-means++ initialization for better initial centroids
+    let centroids = this.initializeCentroidsKMeansPlusPlus(embeddings, k);
+
+    let assignments = new Array(numPoints);
+    let converged = false;
+    let iteration = 0;
+
+    while (!converged && iteration < maxIterations) {
+      // Assign points to nearest centroid
+      const newAssignments = embeddings.map((point, pointIndex) => {
+        let minDistance = Infinity;
+        let assignedCluster = 0;
+
+        for (let clusterIndex = 0; clusterIndex < k; clusterIndex++) {
+          // Use cosine distance for high-dimensional embeddings
+          const similarity = this.cosineSimilarity(point, centroids[clusterIndex]);
+          const distance = 1 - similarity; // Convert similarity to distance
+          if (distance < minDistance) {
+            minDistance = distance;
+            assignedCluster = clusterIndex;
+          }
+        }
+
+        return assignedCluster;
+      });
+
+      // Check for convergence
+      converged = assignments.every((assignment, index) => assignment === newAssignments[index]);
+      assignments = newAssignments;
+
+      // Update centroids
+      if (!converged) {
+        centroids = Array(k).fill(null).map((_, clusterIndex) => {
+          const clusterPoints = embeddings.filter((_, pointIndex) => assignments[pointIndex] === clusterIndex);
+          
+          if (clusterPoints.length === 0) {
+            // Random centroid if cluster is empty
+            return Array(dimensions).fill(0).map(() => Math.random() * 2 - 1);
+          }
+
+          return this.calculateCentroid(clusterPoints);
+        });
+      }
+
+      iteration++;
+    }
+
+    // Group point indices by cluster
+    const clusters: number[][] = Array(k).fill(null).map(() => []);
+    assignments.forEach((clusterIndex, pointIndex) => {
+      clusters[clusterIndex].push(pointIndex);
+    });
+
+    const filteredClusters = clusters.filter(cluster => cluster.length > 0);
+    console.log(`🎯 [KNOWLEDGE ENGINE] K-means complete: ${clusters.length} raw clusters → ${filteredClusters.length} non-empty clusters`);
+    return filteredClusters;
+  }
+
+  /**
+   * Calculate centroid of a set of vectors
+   */
+  private calculateCentroid(vectors: number[][]): number[] {
+    if (vectors.length === 0) return [];
+    
+    const dimensions = vectors[0].length;
+    const centroid = new Array(dimensions).fill(0);
+
+    for (const vector of vectors) {
+      for (let i = 0; i < dimensions; i++) {
+        centroid[i] += vector[i];
+      }
+    }
+
+    for (let i = 0; i < dimensions; i++) {
+      centroid[i] /= vectors.length;
+    }
+
+    return centroid;
+  }
+
+  /**
+   * Calculate Euclidean distance between two vectors
+   */
+  private euclideanDistance(vec1: number[], vec2: number[]): number {
+    let sum = 0;
+    for (let i = 0; i < vec1.length; i++) {
+      sum += Math.pow(vec1[i] - vec2[i], 2);
+    }
+    return Math.sqrt(sum);
+  }
+
+  /**
+   * K-means++ initialization for better initial centroids
+   */
+  private initializeCentroidsKMeansPlusPlus(embeddings: number[][], k: number): number[][] {
+    const centroids: number[][] = [];
+    const numPoints = embeddings.length;
+
+    // Choose first centroid randomly
+    const firstIndex = Math.floor(Math.random() * numPoints);
+    centroids.push([...embeddings[firstIndex]]);
+
+    // Choose remaining centroids with probability proportional to squared distance
+    for (let i = 1; i < k; i++) {
+      const distances = embeddings.map(point => {
+        // Find distance to nearest existing centroid using cosine distance
+        let minDistance = Infinity;
+        for (const centroid of centroids) {
+          const similarity = this.cosineSimilarity(point, centroid);
+          const distance = 1 - similarity; // Convert similarity to distance
+          if (distance < minDistance) {
+            minDistance = distance;
+          }
+        }
+        return minDistance * minDistance; // Squared distance
+      });
+
+      // Calculate cumulative probabilities
+      const totalDistance = distances.reduce((sum, d) => sum + d, 0);
+      const probabilities = distances.map(d => d / totalDistance);
+      
+      // Choose next centroid based on weighted probability
+      const random = Math.random();
+      let cumulativeProb = 0;
+      let chosenIndex = 0;
+      
+      for (let j = 0; j < probabilities.length; j++) {
+        cumulativeProb += probabilities[j];
+        if (random <= cumulativeProb) {
+          chosenIndex = j;
+          break;
+        }
+      }
+
+      centroids.push([...embeddings[chosenIndex]]);
+    }
+
+    console.log(`🎯 [KNOWLEDGE ENGINE] Initialized ${k} centroids using K-means++`);
+    return centroids;
+  }
+
+  /**
+   * Create or update topic from cluster using LLM-generated names
+   */
+  private async createOrUpdateTopicFromCluster(organizationId: string, cluster: any): Promise<any | null> {
+    try {
+      // Generate intelligent topic name using LLM
+      const topicName = await this.generateTopicNameFromCluster(cluster);
+      
+      if (!topicName) {
+        console.log('⚠️ [KNOWLEDGE ENGINE] Failed to generate topic name for cluster');
+        return null;
+      }
+
+      // Check if topic already exists (fuzzy matching)
+      const existingTopic = await this.findSimilarTopic(topicName, organizationId);
+      
+      let topic;
+      let isNew = false;
+
+      if (existingTopic) {
+        // Update existing topic
+        const { data: updatedTopic } = await this.supabase
+          .from('discovered_topics')
+          .update({
+            cluster_centroid: `[${cluster.centroid.join(',')}]`,
+            knowledge_point_count: cluster.size,
+            last_updated: new Date().toISOString()
+          })
+          .eq('id', existingTopic.id)
+          .select()
+          .single();
+        
+        topic = updatedTopic;
+        console.log(`📝 [KNOWLEDGE ENGINE] Updated existing topic: ${topicName}`);
+      } else {
+        // Create new topic
+        const { data: newTopic } = await this.supabase
+          .from('discovered_topics')
+          .insert({
+            organization_id: organizationId,
+            name: topicName,
+            cluster_centroid: `[${cluster.centroid.join(',')}]`,
+            knowledge_point_count: cluster.size,
+            confidence_score: this.calculateTopicConfidence(cluster),
+            discovered_at: new Date().toISOString(),
+            last_updated: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        topic = newTopic;
+        isNew = true;
+        console.log(`✨ [KNOWLEDGE ENGINE] Created new topic: ${topicName}`);
+      }
+
+      if (!topic) {
+        console.error('❌ [KNOWLEDGE ENGINE] Failed to create/update topic');
+        return null;
+      }
+
+      // Link knowledge points to topic
+      await this.linkKnowledgePointsToTopic(topic.id, cluster.points.map((p: any) => p.id));
+
+      return {
+        ...topic,
+        isNew,
+        knowledgePointIds: cluster.points.map((p: any) => p.id)
+      };
+
+    } catch (error) {
+      console.error('❌ [KNOWLEDGE ENGINE] Failed to create/update topic from cluster:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Generate meaningful topic name using LLM analysis of cluster content
+   */
+  private async generateTopicNameFromCluster(cluster: any): Promise<string | null> {
+    try {
+      // Prepare sample content from cluster points
+      const sampleContent = cluster.points
+        .slice(0, 10) // Limit to prevent token overflow
+        .map((point: any, index: number) => {
+          const source = point.knowledge_sources;
+          const author = source.people?.display_name || 'Unknown';
+          const platform = source.platform || 'unknown';
+          
+          return `${index + 1}. [${platform}] "${point.summary}" - by ${author}`;
+        })
+        .join('\n');
+
+      const prompt = `You are an expert at analyzing technical content and identifying topics. Given the following knowledge points that have been clustered together, generate a concise, descriptive topic name.
+
+Knowledge Points:
+${sampleContent}
+
+Instructions:
+1. Analyze the common themes, technologies, and concepts across these knowledge points
+2. Generate a topic name that is:
+   - Concise (2-5 words)
+   - Descriptive and specific
+   - Professional and clear
+   - Captures the main theme that unites these knowledge points
+3. Avoid generic terms like "Discussion" or "General"
+4. Focus on the actual subject matter (technologies, features, processes, etc.)
+
+Topic Name:`;
+
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 20,
+        temperature: 0.3, // Low temperature for consistent naming
+      });
+
+      const topicName = response.choices[0]?.message?.content?.trim();
+      
+      if (topicName && topicName.length > 0) {
+        console.log(`🎯 [KNOWLEDGE ENGINE] Generated topic name: "${topicName}" for cluster of ${cluster.size} points`);
+        return topicName;
+      }
+
+    } catch (error) {
+      console.error('❌ [KNOWLEDGE ENGINE] LLM topic naming failed:', error);
+    }
+
+    // Fallback to simple naming based on most common keywords
+    return this.generateFallbackTopicName(cluster);
+  }
+
+  /**
+   * Fallback topic naming based on keyword analysis
+   */
+  private generateFallbackTopicName(cluster: any): string {
+    const allKeywords = cluster.points
+      .flatMap((point: any) => point.keywords || [])
+      .filter((keyword: string) => keyword && keyword.length > 2);
+
+    if (allKeywords.length === 0) {
+      return `Topic ${cluster.id}`;
+    }
+
+    // Count keyword frequency
+    const keywordCounts = allKeywords.reduce((acc: Record<string, number>, keyword: string) => {
+      acc[keyword] = (acc[keyword] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Get most common keywords
+    const topKeywords = Object.entries(keywordCounts)
+      .sort(([,a], [,b]) => (b as number) - (a as number))
+      .slice(0, 2)
+      .map(([keyword]) => keyword);
+
+    return topKeywords.join(' & ') || `Topic ${cluster.id}`;
+  }
+
+  /**
+   * Calculate confidence score for a topic based on cluster properties
+   */
+  private calculateTopicConfidence(cluster: any): number {
+    // Higher confidence for larger, more cohesive clusters
+    const sizeScore = Math.min(cluster.size / 10, 1); // Normalize size
+    
+    // Could add more sophisticated metrics here:
+    // - Intra-cluster similarity
+    // - Platform diversity
+    // - Temporal consistency
+    
+    return Math.round(sizeScore * 100) / 100;
+  }
+
+  /**
+   * Find existing topic with similar name
+   */
+  private async findSimilarTopic(topicName: string, organizationId: string): Promise<any | null> {
+    const { data: topics } = await this.supabase
+      .from('discovered_topics')
+      .select('*')
+      .eq('organization_id', organizationId);
+
+    if (!topics || topics.length === 0) {
+      return null;
+    }
+
+    // Simple fuzzy matching on topic names
+    const normalizedTarget = topicName.toLowerCase().trim();
+    
+    for (const topic of topics) {
+      const normalizedExisting = topic.name.toLowerCase().trim();
+      const similarity = this.calculateNameSimilarity(normalizedTarget, normalizedExisting);
+      
+      if (similarity > 0.8) { // High threshold for topic merging
+        return topic;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Link knowledge points to discovered topic
+   */
+  private async linkKnowledgePointsToTopic(topicId: string, knowledgePointIds: string[]): Promise<void> {
+    // Remove existing links for these knowledge points
+    await this.supabase
+      .from('knowledge_topic_memberships')
+      .delete()
+      .in('knowledge_point_id', knowledgePointIds);
+
+    // Create new links
+    const memberships = knowledgePointIds.map(kpId => ({
+      topic_id: topicId,
+      knowledge_point_id: kpId,
+      confidence_score: 0.8 // Default confidence, could be made more sophisticated
+    }));
+
+    if (memberships.length > 0) {
+      await this.supabase
+        .from('knowledge_topic_memberships')
+        .insert(memberships);
+    }
+  }
 
   private async processContentWithAI(content: string, title?: string): Promise<ProcessedKnowledge> {
     // Combine title and content
@@ -792,42 +1376,7 @@ Your selection (numbers only):`;
     return experts || [];
   }
 
-  private async performEmbeddingClustering(knowledgePoints: any[]): Promise<any[]> {
-    // For MVP, use simple clustering based on similarity thresholds
-    // In production, this would use proper K-means clustering
-    const clusters: any[] = [];
-    const processed = new Set<string>();
 
-    for (const point of knowledgePoints) {
-      if (processed.has(point.id)) continue;
-
-      const cluster = {
-        centroid: point.embedding,
-        members: [point],
-        name: this.generateTopicName(point.summary, point.keywords),
-        description: point.summary
-      };
-
-      // Find similar points
-      for (const other of knowledgePoints) {
-        if (other.id === point.id || processed.has(other.id)) continue;
-        
-        const similarity = this.cosineSimilarity(point.embedding, other.embedding);
-        if (similarity > 0.8) {
-          cluster.members.push(other);
-          processed.add(other.id);
-        }
-      }
-
-      if (cluster.members.length >= 3) { // Only create topics with multiple knowledge points
-        clusters.push(cluster);
-      }
-      
-      processed.add(point.id);
-    }
-
-    return clusters;
-  }
 
   private async createOrUpdateTopic(organizationId: string, cluster: any): Promise<void> {
     await this.supabase
