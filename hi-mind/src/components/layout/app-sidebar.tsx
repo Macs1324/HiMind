@@ -7,7 +7,8 @@ import {
   Users, 
   FileText, 
   BarChart3,
-  X 
+  X,
+  Wrench
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -27,9 +28,10 @@ interface NavItem {
 
 const navigation: NavItem[] = [
   { title: "Dashboard", icon: Home, href: "/" },
+  { title: "Setup", icon: Wrench, href: "/setup" },
+  { title: "People", icon: Users, href: "/people" },
   { title: "Analytics", icon: BarChart3, href: "/analytics" },
   { title: "Documents", icon: FileText, href: "/documents" },
-  { title: "Team", icon: Users, href: "/team" },
   { title: "Settings", icon: Settings, href: "/settings" },
 ]
 
