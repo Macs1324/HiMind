@@ -223,7 +223,8 @@ RETURNS TABLE (
   similarity_score real,
   source_url text,
   source_title text,
-  author_name text
+  author_name text,
+  platform text
 ) LANGUAGE plpgsql AS $$
 BEGIN
   RETURN QUERY
@@ -234,7 +235,8 @@ BEGIN
     (1 - (kp.embedding <=> query_embedding))::real as similarity_score,
     ks.external_url,
     ks.title,
-    p.display_name
+    p.display_name,
+    ks.platform
   FROM knowledge_points kp
   JOIN knowledge_sources ks ON kp.source_id = ks.id
   LEFT JOIN people p ON ks.author_person_id = p.id

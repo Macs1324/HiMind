@@ -433,6 +433,7 @@ export type Database = {
         }
         Returns: {
           knowledge_point_id: string
+          source_id: string
           summary: string
           similarity_score: number
           source_url: string | null
