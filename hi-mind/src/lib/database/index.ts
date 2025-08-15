@@ -1,20 +1,17 @@
-// Core database utilities and query functions for HiMind
+// Core database utilities and query functions for HiMind (Simplified Schema)
 
 import { createClient } from '@/utils/supabase/client'
 import { createServerClient } from '@/utils/supabase/server'
 import type { 
   Database, 
   PersonWithIdentities, 
-  StatementWithTopics, 
-  QuestionWithRoute,
-  TopicWithExpertise,
+  KnowledgeSourceWithPoint,
+  TopicWithExperts,
   ApiResponse,
   PaginatedResponse,
-  ContentSourceType,
-  StatementType,
-  ExpertiseSignalType,
-  QuestionStatus,
-  QuestionUrgency
+  KnowledgeMatch,
+  ExpertMatch,
+  SearchResult
 } from '@/types/database'
 
 type SupabaseClient = ReturnType<typeof createClient>
@@ -34,10 +31,10 @@ export const getSupabaseClient = (serverSide = false) => {
 export class OrganizationService {
   constructor(private supabase: SupabaseClient) {}
 
-  async createOrganization(name: string, slug: string, settings = {}) {
+  async createOrganization(name: string, slug: string) {
     const { data, error } = await this.supabase
       .from('organizations')
-      .insert({ name, slug, settings })
+      .insert({ name, slug })
       .select()
       .single()
 
@@ -63,46 +60,52 @@ export class OrganizationService {
 
     return { data, error: error?.message || null, success: !error }
   }
+
+  async listOrganizations() {
+    const { data, error } = await this.supabase
+      .from('organizations')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    return { data: data || [], error: error?.message || null, success: !error }
+  }
 }
 
 // ===========================
-// People & Identity Management
+// People Management
 // ===========================
 
 export class PeopleService {
   constructor(private supabase: SupabaseClient) {}
 
-  async createPerson(personData: {
-    organization_id: string
-    display_name: string
-    email?: string
-    auth_user_id?: string
-    timezone?: string
-    role?: 'admin' | 'member' | 'readonly'
-  }) {
+  async createPerson(organizationId: string, displayName: string, email?: string) {
     const { data, error } = await this.supabase
       .from('people')
-      .insert(personData)
+      .insert({
+        organization_id: organizationId,
+        display_name: displayName,
+        email
+      })
       .select()
       .single()
 
     return { data, error: error?.message || null, success: !error }
   }
 
-  async getPersonWithIdentities(personId: string): Promise<ApiResponse<PersonWithIdentities>> {
+  async getPerson(id: string): Promise<ApiResponse<PersonWithIdentities>> {
     const { data, error } = await this.supabase
       .from('people')
       .select(`
         *,
         external_identities (*)
       `)
-      .eq('id', personId)
+      .eq('id', id)
       .single()
 
     return { data, error: error?.message || null, success: !error }
   }
 
-  async findPersonByExternalId(platform: string, externalId: string) {
+  async getPersonByExternalId(platform: string, externalId: string) {
     const { data, error } = await this.supabase
       .from('external_identities')
       .select(`
@@ -113,92 +116,40 @@ export class PeopleService {
       .eq('external_id', externalId)
       .single()
 
-    return { data, error: error?.message || null, success: !error }
+    return { 
+      data: data?.people || null, 
+      error: error?.message || null, 
+      success: !error 
+    }
   }
 
-  async addExternalIdentity(personId: string, identityData: {
-    platform: string
-    external_id: string
+  async listPeople(organizationId: string): Promise<ApiResponse<PersonWithIdentities[]>> {
+    const { data, error } = await this.supabase
+      .from('people')
+      .select(`
+        *,
+        external_identities (*)
+      `)
+      .eq('organization_id', organizationId)
+      .order('created_at', { ascending: false })
+
+    return { data: data || [], error: error?.message || null, success: !error }
+  }
+
+  async createExternalIdentity(
+    personId: string, 
+    platform: 'slack' | 'github', 
+    externalId: string, 
     username?: string
-    profile_data?: any
-  }) {
+  ) {
     const { data, error } = await this.supabase
       .from('external_identities')
-      .insert({ person_id: personId, ...identityData })
-      .select()
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async updatePersonAvailability(personId: string, availability: {
-    work_hours_start?: number
-    work_hours_end?: number
-    work_days?: number[]
-    max_questions_per_day?: number
-    is_available?: boolean
-    status_message?: string
-  }) {
-    const { data, error } = await this.supabase
-      .from('person_availability')
-      .upsert({ person_id: personId, ...availability })
-      .select()
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-}
-
-// ===========================
-// Content & Artifact Management
-// ===========================
-
-export class ContentService {
-  constructor(private supabase: SupabaseClient) {}
-
-  async createContentArtifact(artifactData: {
-    organization_id: string
-    source_type: ContentSourceType
-    external_id?: string
-    external_url?: string
-    parent_artifact_id?: string
-    title?: string
-    body?: string
-    raw_content?: any
-    author_person_id?: string
-    author_external_id?: string
-    platform_created_at?: string
-  }) {
-    const { data, error } = await this.supabase
-      .from('content_artifacts')
-      .insert(artifactData)
-      .select()
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async getUnprocessedArtifacts(organizationId: string, limit = 50) {
-    const { data, error } = await this.supabase
-      .from('content_artifacts')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .eq('is_processed', false)
-      .order('created_at', { ascending: true })
-      .limit(limit)
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async markArtifactAsProcessed(artifactId: string, processingMetadata = {}) {
-    const { data, error } = await this.supabase
-      .from('content_artifacts')
-      .update({ 
-        is_processed: true, 
-        processing_metadata: processingMetadata,
-        updated_at: new Date().toISOString()
+      .insert({
+        person_id: personId,
+        platform,
+        external_id: externalId,
+        username
       })
-      .eq('id', artifactId)
       .select()
       .single()
 
@@ -207,152 +158,135 @@ export class ContentService {
 }
 
 // ===========================
-// Knowledge Statement Management
+// Knowledge Management
 // ===========================
 
 export class KnowledgeService {
   constructor(private supabase: SupabaseClient) {}
 
-  async createStatement(statementData: {
-    organization_id: string
-    headline: string
+  async createKnowledgeSource(data: {
+    organizationId: string
+    platform: 'slack' | 'github'
+    sourceType: 'slack_message' | 'slack_thread' | 'github_pr' | 'github_issue' | 'github_comment'
+    externalId: string
+    externalUrl?: string
+    title?: string
     content: string
-    statement_type?: StatementType
-    source_artifact_id?: string
-    author_person_id?: string
-    context?: any
-    source_url?: string
-    related_urls?: string[]
-    keywords?: string[]
-    is_public?: boolean
+    authorPersonId?: string
+    authorExternalId?: string
+    platformCreatedAt?: string
   }) {
-    const { data, error } = await this.supabase
-      .from('knowledge_statements')
-      .insert(statementData)
-      .select()
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async searchStatements(
-    organizationId: string, 
-    query: string, 
-    options: {
-      limit?: number
-      offset?: number
-      topic_ids?: string[]
-      statement_types?: StatementType[]
-      min_quality_score?: number
-    } = {}
-  ): Promise<PaginatedResponse<Database['public']['Tables']['knowledge_statements']['Row']>> {
-    let queryBuilder = this.supabase
-      .from('knowledge_statements')
-      .select('*, people!author_person_id(display_name)', { count: 'exact' })
-      .eq('organization_id', organizationId)
-      .eq('is_public', true)
-      .textSearch('search_tokens', query)
-
-    if (options.topic_ids?.length) {
-      queryBuilder = queryBuilder.in('id', 
-        this.supabase
-          .from('statement_topics')
-          .select('statement_id')
-          .in('topic_id', options.topic_ids)
-      )
-    }
-
-    if (options.statement_types?.length) {
-      queryBuilder = queryBuilder.in('statement_type', options.statement_types)
-    }
-
-    if (options.min_quality_score) {
-      queryBuilder = queryBuilder.gte('quality_score', options.min_quality_score)
-    }
-
-    const { data, error, count } = await queryBuilder
-      .order('quality_score', { ascending: false })
-      .range(options.offset || 0, (options.offset || 0) + (options.limit || 20) - 1)
-
-    const limit = options.limit || 20
-    const offset = options.offset || 0
-
-    return {
-      data,
-      error: error?.message || null,
-      success: !error,
-      pagination: {
-        page: Math.floor(offset / limit) + 1,
-        limit,
-        total: count || 0,
-        hasMore: (offset + limit) < (count || 0)
-      }
-    }
-  }
-
-  async getStatementWithTopics(statementId: string): Promise<ApiResponse<StatementWithTopics>> {
-    const { data, error } = await this.supabase
-      .from('knowledge_statements')
-      .select(`
-        *,
-        statement_topics (
-          *,
-          topics (*)
-        )
-      `)
-      .eq('id', statementId)
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async linkStatementToTopic(statementId: string, topicId: string, relevanceScore = 1.0) {
-    const { data, error } = await this.supabase
-      .from('statement_topics')
-      .insert({
-        statement_id: statementId,
-        topic_id: topicId,
-        relevance_score: relevanceScore
+    const { data: result, error } = await this.supabase
+      .from('knowledge_sources')
+      .upsert({
+        organization_id: data.organizationId,
+        platform: data.platform,
+        source_type: data.sourceType,
+        external_id: data.externalId,
+        external_url: data.externalUrl,
+        title: data.title,
+        content: data.content,
+        author_person_id: data.authorPersonId,
+        author_external_id: data.authorExternalId,
+        platform_created_at: data.platformCreatedAt
+      }, {
+        onConflict: 'organization_id,platform,external_id'
       })
       .select()
       .single()
 
-    return { data, error: error?.message || null, success: !error }
+    return { data: result, error: error?.message || null, success: !error }
   }
 
-  async updateStatementQuality(statementId: string, qualityScore: number) {
-    const { data, error } = await this.supabase
-      .from('knowledge_statements')
-      .update({ quality_score: qualityScore, updated_at: new Date().toISOString() })
-      .eq('id', statementId)
+  async createKnowledgePoint(data: {
+    sourceId: string
+    summary: string
+    keywords: string[]
+    embedding: number[]
+    qualityScore: number
+    relevanceScore: number
+  }) {
+    const { data: result, error } = await this.supabase
+      .from('knowledge_points')
+      .upsert({
+        source_id: data.sourceId,
+        summary: data.summary,
+        keywords: data.keywords,
+        embedding: `[${data.embedding.join(',')}]`, // Convert to postgres vector format
+        quality_score: data.qualityScore,
+        relevance_score: data.relevanceScore
+      }, {
+        onConflict: 'source_id'
+      })
       .select()
       .single()
 
-    return { data, error: error?.message || null, success: !error }
+    return { data: result, error: error?.message || null, success: !error }
+  }
+
+  async searchKnowledge(organizationId: string, queryEmbedding: number[], limit = 10): Promise<ApiResponse<KnowledgeMatch[]>> {
+    const { data, error } = await this.supabase
+      .rpc('find_similar_knowledge', {
+        query_embedding: `[${queryEmbedding.join(',')}]`,
+        org_id: organizationId,
+        similarity_threshold: 0.7,
+        result_limit: limit
+      })
+
+    return { data: data || [], error: error?.message || null, success: !error }
   }
 }
 
 // ===========================
-// Topic & Clustering Management
+// Topic Management
 // ===========================
 
 export class TopicService {
   constructor(private supabase: SupabaseClient) {}
 
-  async createTopic(topicData: {
-    organization_id: string
+  async createTopic(data: {
+    organizationId: string
     name: string
-    canonical_name?: string
     description?: string
-    keyword_signatures?: string[]
-    parent_topic_id?: string
-    is_cluster_root?: boolean
+    clusterCentroid?: number[]
+    knowledgePointCount?: number
+    confidenceScore?: number
   }) {
+    const { data: result, error } = await this.supabase
+      .from('discovered_topics')
+      .upsert({
+        organization_id: data.organizationId,
+        name: data.name,
+        description: data.description,
+        cluster_centroid: data.clusterCentroid ? `[${data.clusterCentroid.join(',')}]` : null,
+        knowledge_point_count: data.knowledgePointCount || 0,
+        confidence_score: data.confidenceScore || 0.5
+      }, {
+        onConflict: 'organization_id,name'
+      })
+      .select()
+      .single()
+
+    return { data: result, error: error?.message || null, success: !error }
+  }
+
+  async getTopicExperts(topicId: string, limit = 5): Promise<ApiResponse<ExpertMatch[]>> {
     const { data, error } = await this.supabase
-      .from('topics')
-      .insert({
-        ...topicData,
-        canonical_name: topicData.canonical_name || topicData.name.toLowerCase().replace(/\s+/g, '_')
+      .rpc('find_topic_experts', {
+        topic_id_param: topicId,
+        limit_count: limit
+      })
+
+    return { data: data || [], error: error?.message || null, success: !error }
+  }
+
+  async addKnowledgeToTopic(knowledgePointId: string, topicId: string, similarityScore: number) {
+    const { data, error } = await this.supabase
+      .from('knowledge_topic_memberships')
+      .upsert({
+        knowledge_point_id: knowledgePointId,
+        topic_id: topicId,
+        similarity_score: similarityScore
       })
       .select()
       .single()
@@ -360,391 +294,82 @@ export class TopicService {
     return { data, error: error?.message || null, success: !error }
   }
 
-  async getTopicsWithExpertise(organizationId: string): Promise<ApiResponse<TopicWithExpertise[]>> {
+  async listTopics(organizationId: string): Promise<ApiResponse<TopicWithExperts[]>> {
     const { data, error } = await this.supabase
-      .from('topics')
+      .from('discovered_topics')
       .select(`
         *,
-        expertise_scores (
+        topic_experts (
           *,
-          people (display_name, email, is_active)
+          people (*)
         )
       `)
       .eq('organization_id', organizationId)
-      .eq('is_approved', true)
-      .order('activity_score', { ascending: false })
+      .order('confidence_score', { ascending: false })
 
-    return { data, error: error?.message || null, success: !error }
+    return { data: data || [], error: error?.message || null, success: !error }
   }
+}
 
-  async getEmergingTopics(organizationId: string, minEmergenceStrength = 0.5) {
-    const { data, error } = await this.supabase
-      .from('topics')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .eq('is_approved', false)
-      .gte('emergence_strength', minEmergenceStrength)
-      .order('emergence_strength', { ascending: false })
+// ===========================
+// Expert Management
+// ===========================
 
-    return { data, error: error?.message || null, success: !error }
-  }
+export class ExpertService {
+  constructor(private supabase: SupabaseClient) {}
 
-  async approveTopic(topicId: string) {
-    const { data, error } = await this.supabase
-      .from('topics')
-      .update({ is_approved: true, updated_at: new Date().toISOString() })
-      .eq('id', topicId)
-      .select()
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async createTopicCluster(organizationId: string, name: string, topicIds: string[]) {
-    // Create the cluster
-    const { data: cluster, error: clusterError } = await this.supabase
-      .from('topic_clusters')
-      .insert({
-        organization_id: organizationId,
-        name,
-        auto_generated: false
+  async createOrUpdateExpert(data: {
+    personId: string
+    topicId: string
+    expertiseScore: number
+    contributionCount: number
+    lastContributionAt: string
+    isActive?: boolean
+  }) {
+    const { data: result, error } = await this.supabase
+      .from('topic_experts')
+      .upsert({
+        person_id: data.personId,
+        topic_id: data.topicId,
+        expertise_score: data.expertiseScore,
+        contribution_count: data.contributionCount,
+        last_contribution_at: data.lastContributionAt,
+        is_active: data.isActive ?? true
+      }, {
+        onConflict: 'person_id,topic_id'
       })
       .select()
       .single()
 
-    if (clusterError) {
-      return { data: null, error: clusterError.message, success: false }
-    }
-
-    // Add topics to cluster
-    const memberships = topicIds.map(topicId => ({
-      cluster_id: cluster.id,
-      topic_id: topicId,
-      membership_strength: 1.0
-    }))
-
-    const { error: membershipError } = await this.supabase
-      .from('topic_cluster_memberships')
-      .insert(memberships)
-
-    return { 
-      data: cluster, 
-      error: membershipError?.message || null, 
-      success: !membershipError 
-    }
+    return { data: result, error: error?.message || null, success: !error }
   }
 }
 
 // ===========================
-// Expertise & Signal Management
+// Search Query Logging
 // ===========================
 
-export class ExpertiseService {
+export class SearchService {
   constructor(private supabase: SupabaseClient) {}
 
-  async recordExpertiseSignal(signalData: {
-    organization_id: string
-    person_id: string
-    topic_id?: string
-    signal_type: ExpertiseSignalType
-    strength?: number
-    source_artifact_id?: string
-    statement_id?: string
-    confidence?: number
-    occurred_at: string
+  async logQuery(data: {
+    organizationId: string
+    queryText: string
+    queryEmbedding: number[]
+    searcherPersonId?: string
   }) {
-    const { data, error } = await this.supabase
-      .from('expertise_signals')
-      .insert(signalData)
-      .select()
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async getExpertiseScores(personId: string, includeUnavailable = false) {
-    let query = this.supabase
-      .from('expertise_scores')
-      .select(`
-        *,
-        topics (name, description),
-        people (display_name)
-      `)
-      .eq('person_id', personId)
-      .gte('normalized_score', 0.1)
-      .order('normalized_score', { ascending: false })
-
-    if (!includeUnavailable) {
-      query = query.eq('is_available_for_questions', true)
-    }
-
-    const { data, error } = await query
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async getTopicExperts(topicId: string, limit = 10) {
-    const { data, error } = await this.supabase
-      .from('v_topic_experts')
-      .select('*')
-      .eq('topic_id', topicId)
-      .eq('is_available_for_questions', true)
-      .order('normalized_score', { ascending: false })
-      .limit(limit)
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async recomputeExpertiseScores(organizationId: string, personId?: string) {
-    // This would typically call a stored procedure or edge function
-    // For now, we'll implement a basic version
-    
-    const { data, error } = await this.supabase.rpc('recompute_expertise_scores', {
-      org_id: organizationId,
-      person_id: personId
-    })
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async updateExpertiseAvailability(personId: string, topicId: string, isAvailable: boolean) {
-    const { data, error } = await this.supabase
-      .from('expertise_scores')
-      .update({ is_available_for_questions: isAvailable })
-      .eq('person_id', personId)
-      .eq('topic_id', topicId)
-      .select()
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-}
-
-// ===========================
-// Question & Routing Management
-// ===========================
-
-export class QuestionService {
-  constructor(private supabase: SupabaseClient) {}
-
-  async createQuestion(questionData: {
-    organization_id: string
-    title?: string
-    content: string
-    asker_person_id?: string
-    asker_external_id?: string
-    source_platform?: string
-    source_url?: string
-    urgency?: QuestionUrgency
-    estimated_complexity?: 'simple' | 'moderate' | 'complex'
-  }) {
-    const { data, error } = await this.supabase
-      .from('questions')
-      .insert(questionData)
-      .select()
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async getQuestionWithRoutes(questionId: string): Promise<ApiResponse<QuestionWithRoute>> {
-    const { data, error } = await this.supabase
-      .from('questions')
-      .select(`
-        *,
-        question_routes (*)
-      `)
-      .eq('id', questionId)
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async findSimilarQuestions(
-    organizationId: string,
-    questionText: string,
-    similarityThreshold = 0.8,
-    limit = 5
-  ) {
-    // This would use vector similarity search in a real implementation
-    const { data, error } = await this.supabase.rpc('find_similar_questions', {
-      org_id: organizationId,
-      query_text: questionText,
-      similarity_threshold: similarityThreshold,
-      result_limit: limit
-    })
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async routeQuestion(questionId: string, routeData: {
-    route_type: 'auto_answer' | 'expert_route' | 'escalation' | 'no_match'
-    target_person_id?: string
-    alternative_experts?: string[]
-    matched_statement_ids?: string[]
-    similarity_score?: number
-    routing_reason?: any
-    confidence_score?: number
-  }) {
-    const { data, error } = await this.supabase
-      .from('question_routes')
+    const { data: result, error } = await this.supabase
+      .from('search_queries')
       .insert({
-        question_id: questionId,
-        ...routeData
+        organization_id: data.organizationId,
+        query_text: data.queryText,
+        query_embedding: `[${data.queryEmbedding.join(',')}]`,
+        searcher_person_id: data.searcherPersonId
       })
       .select()
       .single()
 
-    if (!error) {
-      // Update question status
-      await this.supabase
-        .from('questions')
-        .update({ 
-          status: routeData.route_type === 'auto_answer' ? 'answered' : 'routed',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', questionId)
-    }
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async getRoutingCandidates(questionId: string) {
-    const { data, error } = await this.supabase
-      .from('v_routing_candidates')
-      .select('*')
-      .eq('question_id', questionId)
-      .order('normalized_score', { ascending: false })
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async updateQuestionStatus(questionId: string, status: QuestionStatus, resolutionTimeMinutes?: number) {
-    const updateData: any = { 
-      status, 
-      updated_at: new Date().toISOString() 
-    }
-    
-    if (resolutionTimeMinutes !== undefined) {
-      updateData.resolution_time_minutes = resolutionTimeMinutes
-    }
-
-    const { data, error } = await this.supabase
-      .from('questions')
-      .update(updateData)
-      .eq('id', questionId)
-      .select()
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-}
-
-// ===========================
-// Feedback & Quality Management
-// ===========================
-
-export class FeedbackService {
-  constructor(private supabase: SupabaseClient) {}
-
-  async submitStatementFeedback(feedbackData: {
-    organization_id: string
-    statement_id: string
-    feedback_type: 'helpful' | 'not_helpful' | 'outdated' | 'incorrect' | 'missing_context'
-    rating?: number
-    comment?: string
-    reviewer_person_id?: string
-    reviewer_external_id?: string
-  }) {
-    const { data, error } = await this.supabase
-      .from('knowledge_feedback')
-      .insert(feedbackData)
-      .select()
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async submitRouteFeedback(feedbackData: {
-    organization_id: string
-    question_route_id: string
-    feedback_type: 'helpful' | 'not_helpful' | 'outdated' | 'incorrect' | 'missing_context'
-    rating?: number
-    comment?: string
-    reviewer_person_id?: string
-  }) {
-    const { data, error } = await this.supabase
-      .from('knowledge_feedback')
-      .insert(feedbackData)
-      .select()
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async getStatementFeedback(statementId: string) {
-    const { data, error } = await this.supabase
-      .from('knowledge_feedback')
-      .select(`
-        *,
-        people!reviewer_person_id (display_name)
-      `)
-      .eq('statement_id', statementId)
-      .order('created_at', { ascending: false })
-
-    return { data, error: error?.message || null, success: !error }
-  }
-}
-
-// ===========================
-// Analytics & Metrics
-// ===========================
-
-export class AnalyticsService {
-  constructor(private supabase: SupabaseClient) {}
-
-  async recordMetric(metricData: {
-    organization_id: string
-    metric_name: string
-    metric_category: string
-    value_numeric?: number
-    value_json?: any
-    entity_type?: string
-    entity_id?: string
-    period_start?: string
-    period_end?: string
-  }) {
-    const { data, error } = await this.supabase
-      .from('knowledge_metrics')
-      .insert(metricData)
-      .select()
-      .single()
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async getOrganizationMetrics(organizationId: string, category?: string) {
-    let query = this.supabase
-      .from('knowledge_metrics')
-      .select('*')
-      .eq('organization_id', organizationId)
-
-    if (category) {
-      query = query.eq('metric_category', category)
-    }
-
-    const { data, error } = await query
-      .order('computed_at', { ascending: false })
-
-    return { data, error: error?.message || null, success: !error }
-  }
-
-  async getKnowledgeCoverage(organizationId: string) {
-    const { data, error } = await this.supabase.rpc('calculate_knowledge_coverage', {
-      org_id: organizationId
-    })
-
-    return { data, error: error?.message || null, success: !error }
+    return { data: result, error: error?.message || null, success: !error }
   }
 }
 
@@ -755,26 +380,20 @@ export class AnalyticsService {
 export class DatabaseManager {
   public organizations: OrganizationService
   public people: PeopleService
-  public content: ContentService
   public knowledge: KnowledgeService
   public topics: TopicService
-  public expertise: ExpertiseService
-  public questions: QuestionService
-  public feedback: FeedbackService
-  public analytics: AnalyticsService
+  public experts: ExpertService
+  public search: SearchService
 
   constructor(serverSide = false) {
     const supabase = getSupabaseClient(serverSide)
     
     this.organizations = new OrganizationService(supabase)
     this.people = new PeopleService(supabase)
-    this.content = new ContentService(supabase)
     this.knowledge = new KnowledgeService(supabase)
     this.topics = new TopicService(supabase)
-    this.expertise = new ExpertiseService(supabase)
-    this.questions = new QuestionService(supabase)
-    this.feedback = new FeedbackService(supabase)
-    this.analytics = new AnalyticsService(supabase)
+    this.experts = new ExpertService(supabase)
+    this.search = new SearchService(supabase)
   }
 }
 
@@ -784,16 +403,14 @@ export class DatabaseManager {
 
 // Lazy initialization to avoid circular dependencies
 let _db: DatabaseManager | null = null
-let _serverDb: DatabaseManager | null = null
 
-export const getDb = () => {
-  if (!_db) _db = new DatabaseManager()
+export function getDatabase(serverSide = false): DatabaseManager {
+  if (!_db || (serverSide && !_db.organizations)) {
+    _db = new DatabaseManager(serverSide)
+  }
   return _db
 }
 
-export const getServerDb = () => {
-  if (!_serverDb) _serverDb = new DatabaseManager(true)
-  return _serverDb
+export function resetDatabase(): void {
+  _db = null
 }
-
-export default DatabaseManager

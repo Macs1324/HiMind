@@ -19,7 +19,7 @@ export async function GET() {
           active_people: 0,
           total_topics: 0,
           approved_topics: 0,
-          total_statements: 0,
+          total_knowledge_sources: 0,
           processing_health: 'unhealthy'
         }
       })
@@ -27,49 +27,47 @@ export async function GET() {
 
     const orgId = organization.id
 
-    // Fetch stats in parallel
+    // Fetch stats in parallel (simplified schema)
     const [
       peopleStats,
       topicStats,
-      statementStats,
+      knowledgeStats,
       processingHealth
     ] = await Promise.all([
       // People stats
       supabase
         .from('people')
-        .select('id, is_active', { count: 'exact' })
+        .select('id', { count: 'exact' })
         .eq('organization_id', orgId),
       
       // Topic stats  
       supabase
-        .from('topics')
-        .select('id, is_approved', { count: 'exact' })
-        .eq('organization_id', orgId),
-      
-      // Statement stats
-      supabase
-        .from('knowledge_statements')
+        .from('discovered_topics')
         .select('id', { count: 'exact' })
         .eq('organization_id', orgId),
       
-      // Processing health check (simplified)
+      // Knowledge points stats
       supabase
-        .from('content_artifacts')
-        .select('id, is_processed', { count: 'exact' })
-        .eq('organization_id', orgId)
+        .from('knowledge_sources')
+        .select('id', { count: 'exact' })
+        .eq('organization_id', orgId),
+      
+      // Processing health check (knowledge points processed)
+      supabase
+        .from('knowledge_points')
+        .select('id', { count: 'exact' })
         .limit(100) // Check recent items
     ])
 
     const totalPeople = peopleStats.count || 0
-    const activePeople = peopleStats.data?.filter(p => p.is_active).length || 0
+    const activePeople = totalPeople // Simplified - no is_active field in simplified schema
     const totalTopics = topicStats.count || 0
-    const approvedTopics = topicStats.data?.filter(t => t.is_approved).length || 0
-    const totalStatements = statementStats.count || 0
+    const approvedTopics = totalTopics // Simplified - no is_approved field in simplified schema
+    const totalKnowledgeSources = knowledgeStats.count || 0
 
-    // Simple health check based on processing rate
-    const recentArtifacts = processingHealth.data || []
-    const processedCount = recentArtifacts.filter(a => a.is_processed).length
-    const processingRate = recentArtifacts.length > 0 ? processedCount / recentArtifacts.length : 1
+    // Simple health check based on knowledge points processed
+    const knowledgePointsCount = processingHealth.count || 0
+    const processingRate = totalKnowledgeSources > 0 ? knowledgePointsCount / totalKnowledgeSources : 1
 
     let health: 'healthy' | 'degraded' | 'unhealthy' = 'healthy'
     if (processingRate < 0.5) {
@@ -84,7 +82,7 @@ export async function GET() {
         active_people: activePeople,
         total_topics: totalTopics,
         approved_topics: approvedTopics,
-        total_statements: totalStatements,
+        total_knowledge_sources: totalKnowledgeSources,
         processing_health: health
       }
     })

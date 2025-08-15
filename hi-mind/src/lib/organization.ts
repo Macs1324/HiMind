@@ -4,6 +4,7 @@
  */
 
 import { getSupabaseClient } from "@/lib/database";
+import { createServiceClient } from "@/utils/supabase/service";
 
 export interface Organization {
   id: string;
@@ -18,13 +19,34 @@ export interface Organization {
  * Future: Could be based on user auth, subdomain, etc.
  */
 export async function getCurrentOrganization(): Promise<Organization | null> {
-  const supabase = getSupabaseClient(true);
+  // Use service client to avoid cookies dependency during startup
+  let supabase;
+  let clientType;
+  try {
+    supabase = createServiceClient();
+    clientType = "service";
+  } catch (error) {
+    // Fallback to regular client if service role key not available
+    supabase = getSupabaseClient(true);
+    clientType = "regular";
+    console.log("⚠️ [ORG] Service client failed, using regular client:", error);
+  }
   
-  const { data: org } = await supabase
+  console.log(`🔍 [ORG] Looking for organization using ${clientType} client...`);
+  
+  const { data: org, error } = await supabase
     .from('organizations')
     .select('*')
     .limit(1)
     .single();
+    
+  if (error) {
+    console.error(`❌ [ORG] Database error:`, error);
+  } else if (org) {
+    console.log(`✅ [ORG] Found organization:`, { id: org.id, name: org.name, slug: org.slug });
+  } else {
+    console.log(`⚠️ [ORG] No organization found in database`);
+  }
     
   return org;
 }

@@ -10,6 +10,8 @@
  */
 
 import { getSupabaseClient } from "@/lib/database";
+import { createServiceClient } from "@/utils/supabase/service";
+import OpenAI from 'openai';
 
 export interface KnowledgeSource {
   platform: 'slack' | 'github';
@@ -57,7 +59,27 @@ export interface QueryResult {
 }
 
 export class KnowledgeEngine {
-  private supabase = getSupabaseClient(true);
+  private supabase: any;
+  private openai: OpenAI;
+
+  constructor() {
+    // Always use service client to avoid cookies dependency
+    try {
+      this.supabase = createServiceClient();
+      console.log('🔧 [KNOWLEDGE ENGINE] Using service client (no cookies)');
+    } catch (error) {
+      console.error('❌ [KNOWLEDGE ENGINE] Service client failed:', error);
+      throw new Error('Service role key required for Knowledge Engine. Please set SUPABASE_SERVICE_ROLE_KEY environment variable.');
+    }
+
+    // Initialize OpenAI client
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OpenAI API key required for Knowledge Engine. Please set OPENAI_API_KEY environment variable.');
+    }
+    this.openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
 
   /**
    * Process raw content from platforms into knowledge points
@@ -223,24 +245,13 @@ export class KnowledgeEngine {
 
   private async generateEmbedding(text: string): Promise<number[]> {
     try {
-      const response = await fetch('https://api.openai.com/v1/embeddings', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'text-embedding-3-small',
-          input: text.substring(0, 8000) // Limit input size
-        })
+      const response = await this.openai.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: text.substring(0, 8000), // Limit input size
+        encoding_format: 'float',
       });
 
-      if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data.data[0].embedding;
+      return response.data[0].embedding;
     } catch (error) {
       console.error('Failed to generate embedding:', error);
       // Return a zero vector as fallback

@@ -7,6 +7,12 @@ import { SlackBackfill } from "./backfill";
 let slackClient: SlackClient | null = null;
 
 export async function startSlackIntegration(): Promise<void> {
+  // Don't create multiple clients
+  if (slackClient) {
+    console.log("🔄 [SLACK] Integration already running, skipping");
+    return;
+  }
+
   try {
     const config = getSlackConfig();
     

@@ -7,21 +7,16 @@ export async function POST() {
     
     console.log("🗑️ Resetting database...")
 
-    // Delete data in reverse dependency order to avoid foreign key issues
+    // Delete data in reverse dependency order to avoid foreign key issues (simplified schema)
     const tables = [
-      'knowledge_feedback',
-      'question_routes', 
-      'questions',
-      'expertise_signals',
-      'expertise_scores',
-      'statement_topics',
-      'knowledge_statements',
-      'topic_cluster_memberships',
-      'topic_clusters',
-      'topics',
+      'search_queries',
+      'topic_experts',
+      'knowledge_topic_memberships',
+      'discovered_topics',
+      'knowledge_points',
+      'knowledge_sources',
       'external_identities',
       'people',
-      'content_artifacts',
       'organizations'
     ]
 
