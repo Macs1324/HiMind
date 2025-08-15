@@ -161,7 +161,7 @@ export class KnowledgeEngine {
         query_embedding: `[${queryEmbedding.join(',')}]`,
         org_id: organizationId,
         similarity_threshold: 0.1,
-        result_limit: 15  // Get more candidates for LLM to choose from
+        result_limit: 50  // Get many candidates for LLM to choose from
       });
 
     // 4. Use LLM to intelligently rank and select top 3 most relevant results

@@ -20,6 +20,8 @@ import {
   Users,
   Settings,
   Database,
+  RefreshCw,
+  MessageSquare,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -35,6 +37,7 @@ export function OrganizationSetup() {
   const [organization, setOrganization] = useState<Organization | null>(null)
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [backfilling, setBackfilling] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const [formData, setFormData] = useState({
@@ -124,6 +127,30 @@ export function OrganizationSetup() {
       setMessage({ type: 'error', text: 'Failed to reset database' })
     } finally {
       setCreating(false)
+    }
+  }
+
+  const triggerSlackBackfill = async () => {
+    try {
+      setBackfilling(true)
+      setMessage(null)
+
+      const response = await fetch('/api/slack/backfill', {
+        method: 'POST',
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setMessage({ type: 'success', text: 'Slack backfill started! Check the console for progress.' })
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to start Slack backfill' })
+      }
+    } catch (error) {
+      console.error('Failed to start Slack backfill:', error)
+      setMessage({ type: 'error', text: 'Failed to start Slack backfill' })
+    } finally {
+      setBackfilling(false)
     }
   }
 
@@ -284,6 +311,33 @@ export function OrganizationSetup() {
               </Button>
               <p className="text-xs text-muted-foreground mt-2">
                 ⚠️ This will delete all data including people and topics
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Slack Integration */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <MessageSquare className="h-5 w-5" />
+                <span>Slack Sync</span>
+              </CardTitle>
+              <CardDescription>
+                Sync historical messages from Slack channels
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button 
+                onClick={triggerSlackBackfill} 
+                disabled={backfilling || creating}
+                variant="outline"
+                className="w-full"
+              >
+                <RefreshCw className={cn("mr-2 h-4 w-4", backfilling && "animate-spin")} />
+                {backfilling ? "Syncing..." : "Sync Slack Messages"}
+              </Button>
+              <p className="text-xs text-muted-foreground mt-2">
+                🔄 This will fetch and process historical Slack messages
               </p>
             </CardContent>
           </Card>
