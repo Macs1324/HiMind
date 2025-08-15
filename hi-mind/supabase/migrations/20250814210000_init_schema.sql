@@ -587,86 +587,40 @@ alter table person_availability enable row level security;
 alter table knowledge_feedback enable row level security;
 alter table knowledge_metrics enable row level security;
 
--- Helper function to get current user's organization
-create or replace function current_user_organization_id()
-returns uuid language sql stable as $$
-  select organization_id from people where auth_user_id = auth.uid() limit 1
-$$;
+-- For now, disable RLS to avoid circular dependencies
+-- In production, implement proper auth-based RLS policies
 
--- Helper function to check if user is admin
-create or replace function current_user_is_admin()
-returns boolean language sql stable as $$
-  select exists(
-    select 1 from people 
-    where auth_user_id = auth.uid() 
-    and role = 'admin'
-    and is_active = true
-  )
-$$;
+-- Organization-level policies - allow all access for now
+create policy org_allow_all_organizations on organizations for all using (true);
+create policy org_allow_all_people on people for all using (true);
+create policy org_allow_all_content_artifacts on content_artifacts for all using (true);
+create policy org_allow_all_knowledge_statements on knowledge_statements for all using (true);
+create policy org_allow_all_topics on topics for all using (true);
+create policy org_allow_all_expertise_signals on expertise_signals for all using (true);
+create policy org_allow_all_questions on questions for all using (true);
+create policy org_allow_all_knowledge_metrics on knowledge_metrics for all using (true);
 
--- Organization-level policies (users can only see data from their org)
-create policy org_isolation_organizations on organizations for all using (id = current_user_organization_id());
-create policy org_isolation_people on people for all using (organization_id = current_user_organization_id());
-create policy org_isolation_content_artifacts on content_artifacts for all using (organization_id = current_user_organization_id());
-create policy org_isolation_knowledge_statements on knowledge_statements for all using (organization_id = current_user_organization_id());
-create policy org_isolation_topics on topics for all using (organization_id = current_user_organization_id());
-create policy org_isolation_expertise_signals on expertise_signals for all using (organization_id = current_user_organization_id());
-create policy org_isolation_questions on questions for all using (organization_id = current_user_organization_id());
-create policy org_isolation_knowledge_metrics on knowledge_metrics for all using (organization_id = current_user_organization_id());
+-- Public knowledge statements (unless marked private) - allow all for now
+create policy public_knowledge_statements_allow_all on knowledge_statements 
+  for select using (true);
 
--- Public knowledge statements (unless marked private)
-create policy public_knowledge_statements on knowledge_statements 
-  for select using (is_public = true and organization_id = current_user_organization_id());
-
--- People can edit their own availability
-create policy own_availability on person_availability 
-  for all using (person_id in (select id from people where auth_user_id = auth.uid()));
+-- People can edit their own availability - allow all for now
+create policy allow_all_availability on person_availability 
+  for all using (true);
 
 -- =========================
 -- Additional RLS Policies for remaining tables
 -- =========================
 
--- External identities (linked to people)
-create policy org_isolation_external_identities on external_identities 
-  for all using (person_id in (select id from people where organization_id = current_user_organization_id()));
-
--- Statement topics (linked to statements and topics)
-create policy org_isolation_statement_topics on statement_topics 
-  for all using (
-    statement_id in (select id from knowledge_statements where organization_id = current_user_organization_id())
-  );
-
--- Topic cluster memberships (linked to clusters)
-create policy org_isolation_topic_cluster_memberships on topic_cluster_memberships 
-  for all using (
-    cluster_id in (select id from topic_clusters where organization_id = current_user_organization_id())
-  );
-
--- Topic clusters
-create policy org_isolation_topic_clusters on topic_clusters 
-  for all using (organization_id = current_user_organization_id());
-
--- Expertise scores (linked to people and topics)
-create policy org_isolation_expertise_scores on expertise_scores 
-  for all using (
-    person_id in (select id from people where organization_id = current_user_organization_id())
-  );
-
--- Question routes (linked to questions)
-create policy org_isolation_question_routes on question_routes 
-  for all using (
-    question_id in (select id from questions where organization_id = current_user_organization_id())
-  );
-
--- Knowledge feedback
-create policy org_isolation_knowledge_feedback on knowledge_feedback 
-  for all using (organization_id = current_user_organization_id());
-
--- Person availability (linked to people)
-create policy org_isolation_person_availability on person_availability 
-  for all using (
-    person_id in (select id from people where organization_id = current_user_organization_id())
-  );
+-- All remaining policies - allow all access for testing
+create policy allow_all_external_identities on external_identities for all using (true);
+create policy allow_all_statement_topics on statement_topics for all using (true);
+create policy allow_all_topic_cluster_memberships on topic_cluster_memberships for all using (true);
+create policy allow_all_topic_clusters on topic_clusters for all using (true);
+create policy allow_all_expertise_scores on expertise_scores for all using (true);
+create policy allow_all_question_routes on question_routes for all using (true);
+create policy allow_all_knowledge_feedback on knowledge_feedback for all using (true);
+create policy allow_all_person_availability on person_availability for all using (true);
 
 -- =========================
 -- Essential Database Functions

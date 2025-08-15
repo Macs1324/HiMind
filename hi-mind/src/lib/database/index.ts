@@ -782,7 +782,18 @@ export class DatabaseManager {
 // Convenience Exports
 // ===========================
 
-export const db = new DatabaseManager()
-export const serverDb = new DatabaseManager(true)
+// Lazy initialization to avoid circular dependencies
+let _db: DatabaseManager | null = null
+let _serverDb: DatabaseManager | null = null
+
+export const getDb = () => {
+  if (!_db) _db = new DatabaseManager()
+  return _db
+}
+
+export const getServerDb = () => {
+  if (!_serverDb) _serverDb = new DatabaseManager(true)
+  return _serverDb
+}
 
 export default DatabaseManager
