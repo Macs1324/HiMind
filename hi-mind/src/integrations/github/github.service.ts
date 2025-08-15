@@ -1,6 +1,7 @@
 import { tryCatchWithLoggingAsync } from "@/utils/try-catch";
 import { EventRepository, type GitHubEvent } from "@/integrations/github/github.repository";
-import { KnowledgeEngine, type KnowledgeSource } from "@/core/knowledge-engine";
+import { type KnowledgeSource } from "@/core/knowledge-engine";
+import { getKnowledgeEngine } from "@/core/knowledge-engine-singleton";
 import { getCurrentOrganization } from "@/lib/organization";
 
 // GitHub API types - using the actual Octokit response types
@@ -27,8 +28,6 @@ export interface GitHubResource {
 export type ProcessedGitHubEvent = GitHubEvent;
 
 export class GitHubService {
-  private knowledgeEngine = new KnowledgeEngine();
-
   constructor(private eventRepository: EventRepository) {}
 
   /**
@@ -248,7 +247,7 @@ export class GitHubService {
         return;
       }
 
-      await this.knowledgeEngine.ingestKnowledgeSource(source, org.id);
+      await getKnowledgeEngine().ingestKnowledgeSource(source, org.id);
       console.log(`📋 [GITHUB SERVICE] Processed ${source.sourceType} content: ${source.externalId}`);
       
     } catch (error) {

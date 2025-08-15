@@ -1,5 +1,6 @@
 import type { SlackRepository } from "./slack.repository";
-import { KnowledgeEngine, type KnowledgeSource } from "@/core/knowledge-engine";
+import { type KnowledgeSource } from "@/core/knowledge-engine";
+import { getKnowledgeEngine } from "@/core/knowledge-engine-singleton";
 import { getCurrentOrganization } from "@/lib/organization";
 
 export interface SlackService {
@@ -18,8 +19,6 @@ export interface SlackService {
 }
 
 export class SlackServiceImpl implements SlackService {
-  private knowledgeEngine = new KnowledgeEngine();
-
   constructor(private readonly repository: SlackRepository) {}
 
   async handleMessage(channelId: string, userId: string, text: string, timestamp: string): Promise<void> {
@@ -157,7 +156,7 @@ export class SlackServiceImpl implements SlackService {
         return;
       }
 
-      await this.knowledgeEngine.ingestKnowledgeSource(source, org.id);
+      await getKnowledgeEngine().ingestKnowledgeSource(source, org.id);
       console.log(`✅ [SLACK SERVICE] Processed ${source.sourceType}: ${source.externalId}`);
       
     } catch (error) {

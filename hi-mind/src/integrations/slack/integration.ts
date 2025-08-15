@@ -2,6 +2,7 @@ import { getSlackConfig } from "./config";
 import { SlackClient } from "./slack.client";
 import { SlackServiceImpl } from "./slack.service";
 import { SlackRepositoryImpl } from "./slack.repository";
+import { SlackBackfill } from "./backfill";
 
 let slackClient: SlackClient | null = null;
 
@@ -18,6 +19,13 @@ export async function startSlackIntegration(): Promise<void> {
     
     // Start the client
     await slackClient.start();
+    
+    // Run historical message backfill
+    const backfill = new SlackBackfill(config.botToken);
+    // Run backfill in background, don't block startup
+    backfill.runBackfill().catch(error => 
+      console.error("⚠️ Backfill failed but continuing with real-time messages:", error)
+    );
     
     console.log("✅ Slack integration started successfully");
   } catch (error) {

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { KnowledgeEngine } from "@/core/knowledge-engine";
+import { getKnowledgeEngine } from "@/core/knowledge-engine-singleton";
+import { getCurrentOrganization } from "@/lib/organization";
 
 export async function POST(request: NextRequest) {
   try {
-    const { query, organizationId = 'demo-org' } = await request.json();
+    const { query } = await request.json();
 
     if (!query || typeof query !== 'string') {
       return NextResponse.json(
@@ -12,8 +13,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const knowledgeEngine = new KnowledgeEngine();
-    const results = await knowledgeEngine.searchKnowledge(query, organizationId);
+    // Get current organization
+    const org = await getCurrentOrganization();
+    if (!org) {
+      return NextResponse.json(
+        { error: 'No organization found. Please create one first.' },
+        { status: 400 }
+      );
+    }
+
+    const results = await getKnowledgeEngine().searchKnowledge(query, org.id);
 
     return NextResponse.json({
       success: true,
@@ -36,7 +45,6 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('q');
-  const organizationId = searchParams.get('org') || 'demo-org';
 
   if (!query) {
     return NextResponse.json(
@@ -46,8 +54,16 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const knowledgeEngine = new KnowledgeEngine();
-    const results = await knowledgeEngine.searchKnowledge(query, organizationId);
+    // Get current organization
+    const org = await getCurrentOrganization();
+    if (!org) {
+      return NextResponse.json(
+        { error: 'No organization found. Please create one first.' },
+        { status: 400 }
+      );
+    }
+
+    const results = await getKnowledgeEngine().searchKnowledge(query, org.id);
 
     return NextResponse.json({
       success: true,
