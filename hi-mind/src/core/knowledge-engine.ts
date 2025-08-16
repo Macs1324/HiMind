@@ -564,6 +564,7 @@ Your selection (numbers only):`;
       clustersFound: number;
       newTopics: number;
       updatedTopics: number;
+      archivedTopics: number;
     };
   }> {
     console.log(`🎯 [KNOWLEDGE ENGINE] Discovering topic clusters for org: ${organizationId}`);
@@ -601,7 +602,8 @@ Your selection (numbers only):`;
           totalKnowledgePoints: knowledgePoints?.length || 0,
           clustersFound: 0,
           newTopics: 0,
-          updatedTopics: 0
+          updatedTopics: 0,
+          archivedTopics: 0
         }
       };
     }
@@ -634,31 +636,16 @@ Your selection (numbers only):`;
           totalKnowledgePoints: knowledgePoints.length,
           clustersFound: 0,
           newTopics: 0,
-          updatedTopics: 0
+          updatedTopics: 0,
+          archivedTopics: 0
         }
       };
     }
 
     console.log(`🔍 [KNOWLEDGE ENGINE] Found ${clusters.length} clusters`);
 
-    // Create/update discovered topics with LLM-generated names
-    const results = {
-      newTopics: 0,
-      updatedTopics: 0,
-      topics: []
-    };
-
-    for (const cluster of clusters) {
-      const topicResult = await this.createOrUpdateTopicFromCluster(organizationId, cluster);
-      if (topicResult) {
-        results.topics.push(topicResult);
-        if (topicResult.isNew) {
-          results.newTopics++;
-        } else {
-          results.updatedTopics++;
-        }
-      }
-    }
+    // Smart topic management - handle existing topics intelligently
+    const results = await this.manageTopicsIntelligently(organizationId, clusters);
 
     console.log(`✨ [KNOWLEDGE ENGINE] Topic discovery complete: ${results.newTopics} new, ${results.updatedTopics} updated`);
 
@@ -668,7 +655,8 @@ Your selection (numbers only):`;
         totalKnowledgePoints: knowledgePoints.length,
         clustersFound: clusters.length,
         newTopics: results.newTopics,
-        updatedTopics: results.updatedTopics
+        updatedTopics: results.updatedTopics,
+        archivedTopics: results.archivedTopics
       }
     };
   }
@@ -949,6 +937,96 @@ Your selection (numbers only):`;
   }
 
   /**
+   * Intelligently manage topics during rediscovery
+   * - Compare new clusters with existing topics using centroid similarity
+   * - Update existing topics when clusters are similar
+   * - Create new topics for genuinely new clusters  
+   * - Archive topics that are no longer relevant
+   */
+  private async manageTopicsIntelligently(organizationId: string, newClusters: any[]): Promise<{
+    topics: any[];
+    newTopics: number;
+    updatedTopics: number;
+    archivedTopics: number;
+  }> {
+    console.log(`🧠 [KNOWLEDGE ENGINE] Starting intelligent topic management for ${newClusters.length} clusters`);
+
+    // Get all existing topics
+    const { data: existingTopics } = await this.supabase
+      .from('discovered_topics')
+      .select('*')
+      .eq('organization_id', organizationId);
+
+    const topics = existingTopics || [];
+    console.log(`📊 [KNOWLEDGE ENGINE] Found ${topics.length} existing topics to compare against`);
+
+    // Track results
+    const results = {
+      topics: [],
+      newTopics: 0,
+      updatedTopics: 0,
+      archivedTopics: 0
+    };
+
+    // Parse existing topic centroids for comparison
+    const existingCentroids = topics.map((topic: any) => ({
+      topic,
+      centroid: this.parseClusterCentroid(topic.cluster_centroid)
+    })).filter((item: any) => item.centroid !== null);
+
+    const usedTopicIds = new Set<string>();
+
+    // Process each new cluster
+    for (const cluster of newClusters) {
+      let bestMatch = null;
+      let bestSimilarity = 0;
+
+      // Find the most similar existing topic using centroid cosine similarity
+      for (const existingItem of existingCentroids) {
+        if (usedTopicIds.has(existingItem.topic.id)) continue; // Already matched
+
+        const similarity = this.cosineSimilarity(cluster.centroid, existingItem.centroid);
+        if (similarity > bestSimilarity && similarity > 0.7) { // 70% similarity threshold
+          bestSimilarity = similarity;
+          bestMatch = existingItem;
+        }
+      }
+
+      if (bestMatch) {
+        // Update existing topic
+        console.log(`🔄 [KNOWLEDGE ENGINE] Updating existing topic "${bestMatch.topic.name}" (similarity: ${(bestSimilarity * 100).toFixed(1)}%)`);
+        
+        const updatedTopic = await this.updateExistingTopic(bestMatch.topic, cluster);
+        if (updatedTopic) {
+          (results.topics as any[]).push({ ...updatedTopic, isNew: false });
+          results.updatedTopics++;
+          usedTopicIds.add(bestMatch.topic.id);
+        }
+      } else {
+        // Create new topic
+        console.log(`✨ [KNOWLEDGE ENGINE] Creating new topic for unmatched cluster`);
+        
+        const newTopic = await this.createNewTopicFromCluster(organizationId, cluster);
+        if (newTopic) {
+          (results.topics as any[]).push({ ...newTopic, isNew: true });
+          results.newTopics++;
+        }
+      }
+    }
+
+    // Archive topics that were not matched (no longer relevant)
+    const unmatchedTopics = topics.filter((topic: any) => !usedTopicIds.has(topic.id));
+    for (const topic of unmatchedTopics) {
+      console.log(`🗄️ [KNOWLEDGE ENGINE] Archiving outdated topic: "${topic.name}"`);
+      await this.archiveOutdatedTopic(topic.id);
+      results.archivedTopics++;
+    }
+
+    console.log(`🎯 [KNOWLEDGE ENGINE] Topic management complete: ${results.newTopics} new, ${results.updatedTopics} updated, ${results.archivedTopics} archived`);
+    return results;
+  }
+
+  /**
    * Create or update topic from cluster using LLM-generated names
    */
   private async createOrUpdateTopicFromCluster(organizationId: string, cluster: any): Promise<any | null> {
@@ -1149,29 +1227,7 @@ Topic Name:`;
     return null;
   }
 
-  /**
-   * Link knowledge points to discovered topic
-   */
-  private async linkKnowledgePointsToTopic(topicId: string, knowledgePointIds: string[]): Promise<void> {
-    // Remove existing links for these knowledge points
-    await this.supabase
-      .from('knowledge_topic_memberships')
-      .delete()
-      .in('knowledge_point_id', knowledgePointIds);
 
-    // Create new links
-    const memberships = knowledgePointIds.map(kpId => ({
-      topic_id: topicId,
-      knowledge_point_id: kpId,
-      confidence_score: 0.8 // Default confidence, could be made more sophisticated
-    }));
-
-    if (memberships.length > 0) {
-      await this.supabase
-        .from('knowledge_topic_memberships')
-        .insert(memberships);
-    }
-  }
 
   private async processContentWithAI(content: string, title?: string): Promise<ProcessedKnowledge> {
     // Combine title and content
@@ -1418,5 +1474,161 @@ Topic Name:`;
     }
     
     return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
+
+  /**
+   * Parse cluster centroid from database string format
+   */
+  private parseClusterCentroid(centroidStr: string): number[] | null {
+    try {
+      if (!centroidStr) return null;
+      
+      // Remove brackets and parse as array
+      const cleanStr = centroidStr.replace(/^\[|\]$/g, '');
+      return cleanStr.split(',').map(num => parseFloat(num.trim()));
+    } catch (error) {
+      console.warn('Failed to parse cluster centroid:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Update an existing topic with new cluster data
+   */
+  private async updateExistingTopic(existingTopic: any, newCluster: any): Promise<any | null> {
+    try {
+      // Update the topic with new cluster information
+      const { data: updatedTopic, error } = await this.supabase
+        .from('discovered_topics')
+        .update({
+          cluster_centroid: `[${newCluster.centroid.join(',')}]`,
+          knowledge_point_count: newCluster.size,
+          confidence_score: this.calculateTopicConfidence(newCluster),
+          last_updated: new Date().toISOString()
+        })
+        .eq('id', existingTopic.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Failed to update existing topic:', error);
+        return null;
+      }
+
+      // Update knowledge point memberships
+      const pointIds = newCluster.points?.map((p: any) => p.id) || [];
+      await this.linkKnowledgePointsToTopic(existingTopic.id, pointIds);
+
+      return updatedTopic;
+    } catch (error) {
+      console.error('Error updating existing topic:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Create a completely new topic from a cluster
+   */
+  private async createNewTopicFromCluster(organizationId: string, cluster: any): Promise<any | null> {
+    try {
+      // Generate intelligent topic name using LLM
+      const topicName = await this.generateTopicNameFromCluster(cluster);
+      
+      if (!topicName) {
+        console.log('⚠️ [KNOWLEDGE ENGINE] Failed to generate topic name for cluster');
+        return null;
+      }
+
+      // Create new topic
+      const { data: newTopic, error } = await this.supabase
+        .from('discovered_topics')
+        .insert({
+          organization_id: organizationId,
+          name: topicName,
+          cluster_centroid: `[${cluster.centroid.join(',')}]`,
+          knowledge_point_count: cluster.size,
+          confidence_score: this.calculateTopicConfidence(cluster),
+          discovered_at: new Date().toISOString(),
+          last_updated: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Failed to create new topic:', error);
+        return null;
+      }
+
+      // Link knowledge points to the new topic
+      const pointIds = cluster.points?.map((p: any) => p.id) || [];
+      await this.linkKnowledgePointsToTopic(newTopic.id, pointIds);
+
+      return newTopic;
+    } catch (error) {
+      console.error('Error creating new topic:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Archive an outdated topic (mark as inactive rather than delete)
+   */
+  private async archiveOutdatedTopic(topicId: string): Promise<void> {
+    try {
+      // Delete the topic completely for now (could be changed to archiving)
+      await this.supabase
+        .from('discovered_topics')
+        .delete()
+        .eq('id', topicId);
+
+      // Remove knowledge point memberships for archived topic
+      await this.supabase
+        .from('knowledge_topic_memberships')
+        .delete()
+        .eq('topic_id', topicId);
+
+    } catch (error) {
+      console.error('Error archiving topic:', error);
+    }
+  }
+
+  /**
+   * Link knowledge points to a topic by creating membership records
+   */
+  private async linkKnowledgePointsToTopic(topicId: string, knowledgePointIds: string[]): Promise<void> {
+    if (!knowledgePointIds.length) {
+      console.log('⚠️ [KNOWLEDGE ENGINE] No knowledge points to link to topic');
+      return;
+    }
+
+    try {
+      console.log(`🔗 [KNOWLEDGE ENGINE] Linking ${knowledgePointIds.length} knowledge points to topic ${topicId}`);
+
+      // First, remove existing memberships for this topic
+      await this.supabase
+        .from('knowledge_topic_memberships')
+        .delete()
+        .eq('topic_id', topicId);
+
+      // Create new memberships
+      const memberships = knowledgePointIds.map(kpId => ({
+        topic_id: topicId,
+        knowledge_point_id: kpId,
+        similarity_score: 0.8 // Default similarity, could be made more sophisticated
+      }));
+
+      const { error } = await this.supabase
+        .from('knowledge_topic_memberships')
+        .insert(memberships);
+
+      if (error) {
+        console.error('❌ [KNOWLEDGE ENGINE] Failed to create topic memberships:', error);
+      } else {
+        console.log(`✅ [KNOWLEDGE ENGINE] Successfully linked ${knowledgePointIds.length} knowledge points to topic`);
+      }
+
+    } catch (error) {
+      console.error('❌ [KNOWLEDGE ENGINE] Error linking knowledge points to topic:', error);
+    }
   }
 }

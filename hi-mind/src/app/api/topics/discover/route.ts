@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
         *,
         knowledge_topic_memberships (
           knowledge_point_id,
-          confidence_score
+          similarity_score
         )
       `)
       .eq('organization_id', org.id)

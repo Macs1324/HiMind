@@ -502,9 +502,11 @@ export function OrganizationSetup() {
                   Dashboard
                 </a>
               </Button>
-              <Button variant="outline" className="justify-start w-full" disabled>
-                <Database className="mr-2 h-4 w-4" />
-                Topics (Soon)
+              <Button variant="outline" className="justify-start w-full" asChild>
+                <a href="/topics">
+                  <Database className="mr-2 h-4 w-4" />
+                  View Topics
+                </a>
               </Button>
             </div>
           </CardContent>
