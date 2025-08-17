@@ -1,305 +1,478 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { AppShell } from "@/components/layout/app-shell"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Search, ExternalLink, User, MessageSquare, Github, Brain, Slack } from "lucide-react"
+import { useState } from "react";
+import { AppShell } from "@/components/layout/app-shell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+	Search,
+	ExternalLink,
+	User,
+	MessageSquare,
+	Github,
+	Brain,
+	Slack,
+} from "lucide-react";
 
 interface KnowledgeMatch {
-  knowledge_point_id: string
-  source_id: string
-  summary: string
-  similarity_score: number
-  source_url: string
-  source_title?: string | null
-  author_name?: string | null
-  platform: string
+	knowledge_point_id: string;
+	source_id: string;
+	summary: string;
+	similarity_score: number;
+	source_url: string;
+	source_title?: string | null;
+	author_name?: string | null;
+	platform: string;
 }
 
 interface ExpertMatch {
-  personId: string
-  displayName: string
-  expertiseScore: number
-  contributionCount: number
+	personId: string;
+	name: string;
+	email?: string;
+	expertiseScore: number;
+	totalContributions: number;
+	relevantContributions: number;
+	topContributions: Array<{
+		summary: string;
+		platform: string;
+		sourceUrl?: string;
+		similarity: number;
+	}>;
+}
+
+interface KnowledgeAnswer {
+	summary: string;
+	authorName: string;
+	platform: string;
+	sourceUrl?: string;
+	relevanceScore: number;
+}
+
+interface ExpertSearchResults {
+	query: string;
+	primaryExperts: ExpertMatch[];
+	potentialAnswers: KnowledgeAnswer[];
+	hasDirectAnswers: boolean;
 }
 
 interface SearchResults {
-  query: string
-  knowledgeMatches: KnowledgeMatch[]
-  suggestedExperts: ExpertMatch[]
-  topicMatches: string[]
+	query: string;
+	knowledgeMatches: KnowledgeMatch[];
+	suggestedExperts: ExpertMatch[];
+	topicMatches: string[];
 }
 
 export default function SearchPage() {
-  const [query, setQuery] = useState("")
-  const [results, setResults] = useState<SearchResults | null>(null)
-  const [loading, setLoading] = useState(false)
+	const [query, setQuery] = useState("");
+	const [expertResults, setExpertResults] =
+		useState<ExpertSearchResults | null>(null);
+	const [loading, setLoading] = useState(false);
 
-  const getPlatformIcon = (platform: string) => {
-    switch (platform?.toLowerCase()) {
-      case 'slack':
-        // Nord8 - Frost
-        return <Slack className="h-4 w-4 text-[#88c0d0]" />
-      case 'github':
-        // Nord3 - Muted  
-        return <Github className="h-4 w-4 text-[#4c566a]" />
-      default:
-        // Nord10 - Primary
-        return <Brain className="h-4 w-4 text-[#5e81ac]" />
-    }
-  }
+	const getPlatformIcon = (platform: string) => {
+		switch (platform?.toLowerCase()) {
+			case "slack":
+				// Nord8 - Frost
+				return <Slack className="h-4 w-4 text-[#88c0d0]" />;
+			case "github":
+				// Nord3 - Muted
+				return <Github className="h-4 w-4 text-[#4c566a]" />;
+			default:
+				// Nord10 - Primary
+				return <Brain className="h-4 w-4 text-[#5e81ac]" />;
+		}
+	};
 
-  const getPlatformName = (platform: string) => {
-    switch (platform?.toLowerCase()) {
-      case 'slack':
-        return 'Slack'
-      case 'github':
-        return 'GitHub'
-      default:
-        return platform || 'Unknown'
-    }
-  }
+	const getPlatformName = (platform: string) => {
+		switch (platform?.toLowerCase()) {
+			case "slack":
+				return "Slack";
+			case "github":
+				return "GitHub";
+			default:
+				return platform || "Unknown";
+		}
+	};
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!query.trim()) return
+	const handleSearch = async (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!query.trim()) return;
 
-    setLoading(true)
-    try {
-      const response = await fetch('/api/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: query.trim() })
-      })
+		setLoading(true);
+		try {
+			const response = await fetch("/api/search/experts", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ query: query.trim() }),
+			});
 
-      const data = await response.json()
-      if (data.success) {
-        setResults(data.results)
-      } else {
-        console.error('Search failed:', data.error)
-      }
-    } catch (error) {
-      console.error('Search error:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+			const data = await response.json();
+			if (data.success) {
+				setExpertResults(data.results);
+			} else {
+				console.error("Knowledge search failed:", data.error);
+			}
+		} catch (error) {
+			console.error("Knowledge search error:", error);
+		} finally {
+			setLoading(false);
+		}
+	};
 
-  return (
-    <AppShell>
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Knowledge Search</h1>
-          <p className="text-muted-foreground mt-2">
-            Ask a question and get routed to the right source or expert
-          </p>
-        </div>
+	return (
+		<AppShell>
+			<div className="space-y-6">
+				{/* Header */}
+				<div>
+					<h1 className="text-3xl font-bold tracking-tight">
+						Knowledge Search
+					</h1>
+					<p className="text-muted-foreground mt-2">
+						Ask a question and connect with the right people who
+						have the knowledge
+					</p>
+				</div>
 
-        {/* Search Form */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Search className="h-5 w-5" />
-              <span>Ask HiMind</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSearch} className="space-y-4">
-              <div className="flex space-x-2">
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="How do I deploy a React app to AWS?"
-                  className="flex-1"
-                />
-                <Button type="submit" disabled={loading || !query.trim()}>
-                  {loading ? "Searching..." : "Search"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+				{/* Search Form */}
+				<Card>
+					<CardHeader>
+						<CardTitle className="flex items-center space-x-2">
+							<User className="h-5 w-5" />
+							<span>Ask a question</span>
+						</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<form onSubmit={handleSearch} className="space-y-4">
+							<div className="flex space-x-2">
+								<Input
+									value={query}
+									onChange={(e) => setQuery(e.target.value)}
+									placeholder="How do I deploy a React app to AWS?"
+									className="flex-1"
+								/>
+								<Button
+									type="submit"
+									disabled={loading || !query.trim()}
+								>
+									{loading ? "Searching..." : "Search"}
+								</Button>
+							</div>
+						</form>
+					</CardContent>
+				</Card>
 
-        {/* Results */}
-        {results && (
-          <div className="space-y-6">
-            {/* Knowledge Sources */}
-            {results.knowledgeMatches.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <span>🎯 Top Knowledge Sources</span>
-                    <Badge variant="outline" className="text-xs bg-[#a3be8c]/10 text-[#a3be8c] border-[#a3be8c]/20">
-                      AI-Ranked
-                    </Badge>
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    {results.knowledgeMatches.length} most relevant discussions selected by AI • Click any result to open source
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {results.knowledgeMatches.map((match, index) => (
-                      <div 
-                        key={match.knowledge_point_id}
-                        className="group border rounded-lg hover:shadow-md hover:border-[#5e81ac]/50 transition-all duration-200 cursor-pointer bg-card hover:bg-[#88c0d0]/10"
-                        onClick={() => match.source_url && window.open(match.source_url, '_blank')}
-                        title={`Click to open in ${getPlatformName(match.platform)}`}
-                      >
-                        <div className="p-4">
-                          <div className="flex items-start gap-3">
-                            {/* Ranking Badge */}
-                            <div className="flex-shrink-0">
-                              <div className="w-6 h-6 rounded-full bg-[#5e81ac] text-white text-xs font-bold flex items-center justify-center">
-                                {index + 1}
-                              </div>
-                            </div>
-                            
-                            {/* Platform Icon */}
-                            <div className="flex-shrink-0 mt-1">
-                              {getPlatformIcon(match.platform)}
-                            </div>
-                            
-                            {/* Content */}
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-medium leading-relaxed text-foreground group-hover:text-[#5e81ac] transition-colors mb-3">
-                                {match.summary}
-                              </h3>
-                              
-                              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                                {/* Platform Badge */}
-                                <Badge variant="secondary" className="text-xs">
-                                  <span className="flex items-center gap-1">
-                                    {getPlatformIcon(match.platform)}
-                                    {getPlatformName(match.platform)}
-                                  </span>
-                                </Badge>
-                                
-                                {/* Author */}
-                                {match.author_name && (
-                                  <span className="flex items-center space-x-1 text-sm text-muted-foreground">
-                                    <User className="h-3 w-3" />
-                                    <span>{match.author_name}</span>
-                                  </span>
-                                )}
-                                
-                                {/* Relevance Score */}
-                                <span className="text-sm font-medium text-[#a3be8c]">
-                                  {Math.round(match.similarity_score * 100)}% relevant
-                                </span>
-                              </div>
-                            </div>
-                            
-                            {/* External Link Icon */}
-                            <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <ExternalLink className="h-4 w-4 text-muted-foreground" />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+				{/* Results */}
+				{expertResults && (
+					<div className="space-y-6">
+						{/* Primary Experts */}
+						{expertResults.primaryExperts.length > 0 && (
+							<Card>
+								<CardHeader>
+									<CardTitle className="flex items-center gap-2">
+										<User className="h-5 w-5" />
+										<span>Recommended Experts</span>
+										<Badge
+											variant="outline"
+											className="text-xs bg-[#bf616a]/10 text-[#bf616a] border-[#bf616a]/20"
+										>
+											People First
+										</Badge>
+									</CardTitle>
+									<p className="text-sm text-muted-foreground">
+										People with expertise in this area -
+										consider reaching out to them
+									</p>
+								</CardHeader>
+								<CardContent>
+									<div className="space-y-4">
+										{expertResults.primaryExperts.map(
+											(expert, index) => (
+												<div
+													key={expert.personId}
+													className="group border rounded-lg hover:shadow-md hover:border-[#bf616a]/50 transition-all duration-200 bg-card hover:bg-[#bf616a]/5"
+												>
+													<div className="p-4">
+														<div className="flex items-start gap-4">
+															{/* Ranking Badge */}
+															<div className="flex-shrink-0">
+																<div className="w-8 h-8 rounded-full bg-[#bf616a] text-white text-sm font-bold flex items-center justify-center">
+																	{index + 1}
+																</div>
+															</div>
 
-            {/* Expert Suggestions */}
-            {results.suggestedExperts.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>👥 Ask an Expert</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    People who might be able to help
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {results.suggestedExperts.map((expert) => (
-                      <div 
-                        key={expert.personId}
-                        className="border rounded-lg p-3 text-center hover:bg-accent/50 transition-colors"
-                      >
-                        <h3 className="font-medium mb-1">{expert.displayName}</h3>
-                        <div className="text-xs text-muted-foreground">
-                          <div>Expertise: {Math.round(expert.expertiseScore * 100)}%</div>
-                          <div>{expert.contributionCount} contributions</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+															{/* Expert Info */}
+															<div className="flex-1 min-w-0">
+																<div className="flex items-center gap-2 mb-2">
+																	<h3 className="font-semibold text-lg text-foreground">
+																		{
+																			expert.name
+																		}
+																	</h3>
+																	{expert.email && (
+																		<Badge
+																			variant="secondary"
+																			className="text-xs"
+																		>
+																			{
+																				expert.email
+																			}
+																		</Badge>
+																	)}
+																</div>
 
-            {/* Related Topics */}
-            {results.topicMatches.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>🎯 Related Topics</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    {results.topicMatches.map((topic) => (
-                      <span 
-                        key={topic}
-                        className="px-2 py-1 bg-secondary text-secondary-foreground rounded-md text-sm"
-                      >
-                        {topic}
-                      </span>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+																<div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3">
+																	<span className="text-sm font-medium text-[#bf616a]">
+																		{Math.round(
+																			expert.expertiseScore *
+																				100,
+																		)}
+																		%
+																		expertise
+																		match
+																	</span>
+																	<span className="text-sm text-muted-foreground">
+																		{
+																			expert.relevantContributions
+																		}{" "}
+																		relevant
+																		•{" "}
+																		{
+																			expert.totalContributions
+																		}{" "}
+																		total
+																		contributions
+																	</span>
+																</div>
 
-            {/* No Results */}
-            {results.knowledgeMatches.length === 0 && results.suggestedExperts.length === 0 && (
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <p className="text-muted-foreground">
-                    No results found for &quot;{results.query}&quot;. Try a different search term.
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        )}
+																{/* Top Contributions */}
+																{expert
+																	.topContributions
+																	.length >
+																	0 && (
+																	<div className="space-y-2">
+																		<h4 className="text-sm font-medium text-muted-foreground">
+																			Recent
+																			relevant
+																			work:
+																		</h4>
+																		{expert.topContributions
+																			.slice(
+																				0,
+																				2,
+																			)
+																			.map(
+																				(
+																					contribution,
+																					idx,
+																				) => (
+																					<div
+																						key={
+																							idx
+																						}
+																						className="flex items-start gap-2 p-2 bg-muted/50 rounded text-sm cursor-pointer hover:bg-muted"
+																						onClick={() =>
+																							contribution.sourceUrl &&
+																							window.open(
+																								contribution.sourceUrl,
+																								"_blank",
+																							)
+																						}
+																					>
+																						<div className="flex-shrink-0 mt-0.5">
+																							{getPlatformIcon(
+																								contribution.platform,
+																							)}
+																						</div>
+																						<div className="flex-1 min-w-0">
+																							<p className="text-foreground line-clamp-2">
+																								{
+																									contribution.summary
+																								}
+																							</p>
+																							<div className="flex items-center gap-2 mt-1">
+																								<span className="text-xs text-muted-foreground">
+																									{Math.round(
+																										contribution.similarity *
+																											100,
+																									)}
 
-        {/* Example Queries */}
-        {!results && (
-          <Card>
-            <CardHeader>
-              <CardTitle>💡 Try asking about...</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {[
-                  "How to deploy React apps?",
-                  "Database migration best practices",
-                  "API authentication setup",
-                  "Docker configuration issues",
-                  "Performance optimization tips",
-                  "Testing strategies"
-                ].map((example) => (
-                  <Button
-                    key={example}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setQuery(example)}
-                    className="justify-start text-left h-auto p-3"
-                  >
-                    {example}
-                  </Button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </AppShell>
-  )
+																									%
+																									match
+																								</span>
+																								{contribution.sourceUrl && (
+																									<ExternalLink className="h-3 w-3 text-muted-foreground" />
+																								)}
+																							</div>
+																						</div>
+																					</div>
+																				),
+																			)}
+																	</div>
+																)}
+															</div>
+														</div>
+													</div>
+												</div>
+											),
+										)}
+									</div>
+								</CardContent>
+							</Card>
+						)}
+
+						{/* Potential Direct Answers */}
+						{expertResults.potentialAnswers.length > 0 && (
+							<Card>
+								<CardHeader>
+									<CardTitle className="flex items-center gap-2">
+										<Brain className="h-5 w-5" />
+										<span>📚 Potential Answers</span>
+										{expertResults.hasDirectAnswers && (
+											<Badge
+												variant="outline"
+												className="text-xs bg-[#a3be8c]/10 text-[#a3be8c] border-[#a3be8c]/20"
+											>
+												Direct Match
+											</Badge>
+										)}
+									</CardTitle>
+									<p className="text-sm text-muted-foreground">
+										{expertResults.hasDirectAnswers
+											? "Found discussions that might directly answer your question"
+											: "Related discussions that might be helpful"}
+									</p>
+								</CardHeader>
+								<CardContent>
+									<div className="space-y-3">
+										{expertResults.potentialAnswers.map(
+											(answer, index) => (
+												<div
+													key={index}
+													className="group border rounded-lg hover:shadow-md hover:border-[#a3be8c]/50 transition-all duration-200 cursor-pointer bg-card hover:bg-[#a3be8c]/5"
+													onClick={() =>
+														answer.sourceUrl &&
+														window.open(
+															answer.sourceUrl,
+															"_blank",
+														)
+													}
+												>
+													<div className="p-4">
+														<div className="flex items-start gap-3">
+															<div className="flex-shrink-0 mt-1">
+																{getPlatformIcon(
+																	answer.platform,
+																)}
+															</div>
+
+															<div className="flex-1 min-w-0">
+																<h3 className="font-medium leading-relaxed text-foreground group-hover:text-[#a3be8c] transition-colors mb-2">
+																	{
+																		answer.summary
+																	}
+																</h3>
+
+																<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+																	<Badge
+																		variant="secondary"
+																		className="text-xs"
+																	>
+																		<span className="flex items-center gap-1">
+																			{getPlatformIcon(
+																				answer.platform,
+																			)}
+																			{getPlatformName(
+																				answer.platform,
+																			)}
+																		</span>
+																	</Badge>
+
+																	<span className="flex items-center space-x-1 text-sm text-muted-foreground">
+																		<User className="h-3 w-3" />
+																		<span>
+																			{
+																				answer.authorName
+																			}
+																		</span>
+																	</span>
+
+																	<span className="text-sm font-medium text-[#a3be8c]">
+																		{Math.round(
+																			answer.relevanceScore *
+																				100,
+																		)}
+																		%
+																		relevant
+																	</span>
+																</div>
+															</div>
+
+															<div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+																<ExternalLink className="h-4 w-4 text-muted-foreground" />
+															</div>
+														</div>
+													</div>
+												</div>
+											),
+										)}
+									</div>
+								</CardContent>
+							</Card>
+						)}
+
+						{/* No Results */}
+						{expertResults.primaryExperts.length === 0 &&
+							expertResults.potentialAnswers.length === 0 && (
+								<Card>
+									<CardContent className="py-8 text-center">
+										<User className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+										<p className="text-muted-foreground mb-2">
+											No experts or answers found for
+											&quot;{expertResults.query}&quot;
+										</p>
+										<p className="text-sm text-muted-foreground">
+											Try a different search term or check
+											if the knowledge points have been
+											added to the system
+										</p>
+									</CardContent>
+								</Card>
+							)}
+					</div>
+				)}
+
+				{/* Example Queries */}
+				{!expertResults && (
+					<Card>
+						<CardHeader>
+							<CardTitle>💡 Try asking about...</CardTitle>
+						</CardHeader>
+						<CardContent>
+							<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+								{[
+									"Who knows about React deployment?",
+									"Database migration experts",
+									"API authentication specialists",
+									"Docker configuration help",
+									"Performance optimization experts",
+									"Testing strategy knowledge",
+								].map((example) => (
+									<Button
+										key={example}
+										variant="outline"
+										size="sm"
+										onClick={() => setQuery(example)}
+										className="justify-start text-left h-auto p-3"
+									>
+										{example}
+									</Button>
+								))}
+							</div>
+						</CardContent>
+					</Card>
+				)}
+			</div>
+		</AppShell>
+	);
 }
