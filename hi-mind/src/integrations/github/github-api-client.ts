@@ -139,6 +139,30 @@ export class GitHubAPIClient {
   }
 
   /**
+   * Fetch detailed commit with file changes for knowledge extraction
+   */
+  async fetchCommitDetails(owner: string, repo: string, sha: string): Promise<RestEndpointMethodTypes["repos"]["getCommit"]["response"]["data"]> {
+    const [result, error] = await tryCatchWithLoggingAsync(async () => {
+      console.log(`🔍 [GITHUB API] Fetching commit details for ${sha.substring(0, 8)}...`);
+      
+      const response = await this.octokit.rest.repos.getCommit({
+        owner,
+        repo,
+        ref: sha,
+      });
+
+      return response.data;
+    }, "github_api_fetch_commit_details");
+
+    if (error) {
+      console.error("❌ [GITHUB API] Failed to fetch commit details:", error);
+      throw error;
+    }
+
+    return result;
+  }
+
+  /**
    * Fetch releases for a repository
    */
   async fetchReleases(owner: string, repo: string): Promise<GitHubResource[]> {

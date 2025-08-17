@@ -1102,47 +1102,15 @@ Your selection (numbers only):`;
   }
 
   /**
-   * Generate meaningful topic name using LLM analysis of cluster content
+   * Generate meaningful topic name using enhanced LLM analysis of cluster content
    */
   private async generateTopicNameFromCluster(cluster: any): Promise<string | null> {
     try {
-      // Prepare sample content from cluster points
-      const sampleContent = cluster.points
-        .slice(0, 10) // Limit to prevent token overflow
-        .map((point: any, index: number) => {
-          const source = point.knowledge_sources;
-          const author = source.people?.display_name || 'Unknown';
-          const platform = source.platform || 'unknown';
-          
-          return `${index + 1}. [${platform}] "${point.summary}" - by ${author}`;
-        })
-        .join('\n');
-
-      const prompt = `You are an expert at analyzing technical content and identifying topics. Given the following knowledge points that have been clustered together, generate a concise, descriptive topic name.
-
-Knowledge Points:
-${sampleContent}
-
-Instructions:
-1. Analyze the common themes, technologies, and concepts across these knowledge points
-2. Generate a topic name that is:
-   - Concise (2-5 words)
-   - Descriptive and specific
-   - Professional and clear
-   - Captures the main theme that unites these knowledge points
-3. Avoid generic terms like "Discussion" or "General"
-4. Focus on the actual subject matter (technologies, features, processes, etc.)
-
-Topic Name:`;
-
-      const response = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 20,
-        temperature: 0.3, // Low temperature for consistent naming
-      });
-
-      const topicName = response.choices[0]?.message?.content?.trim();
+      // Step 1: Extract comprehensive themes from ALL cluster points
+      const themes = await this.extractClusterThemes(cluster);
+      
+      // Step 2: Generate topic name based on comprehensive analysis
+      const topicName = await this.generateTopicNameFromThemes(themes, cluster);
       
       if (topicName && topicName.length > 0) {
         console.log(`🎯 [KNOWLEDGE ENGINE] Generated topic name: "${topicName}" for cluster of ${cluster.size} points`);
@@ -1155,6 +1123,122 @@ Topic Name:`;
 
     // Fallback to simple naming based on most common keywords
     return this.generateFallbackTopicName(cluster);
+  }
+
+  /**
+   * Extract comprehensive themes from all points in a cluster
+   */
+  private async extractClusterThemes(cluster: any): Promise<string> {
+    try {
+      // Analyze ALL points, but in batches to avoid token limits
+      const allSummaries = cluster.points.map((point: any) => point.summary);
+      const allKeywords = cluster.points.flatMap((point: any) => point.keywords || []);
+      
+      // Get platform and source type distribution
+      const platformStats = this.getClusterStats(cluster);
+      
+      // Combine key information for thematic analysis
+      const keyContent = allSummaries.slice(0, 15).join('. '); // More content for better analysis
+      const topKeywords = [...new Set(allKeywords)].slice(0, 10).join(', ');
+      
+      const prompt = `Analyze this cluster of ${cluster.size} knowledge points and identify the main themes.
+
+Key Content Samples:
+${keyContent}
+
+Common Keywords: ${topKeywords}
+
+Platform Distribution: ${platformStats}
+
+Task: Identify the 2-3 most significant themes that unite these knowledge points. Focus on:
+- Technical topics, tools, or technologies
+- Business processes or workflows  
+- Problem domains or solution areas
+- Feature areas or system components
+
+Respond with just the key themes (not a topic name), separated by semicolons:`;
+
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 80,
+        temperature: 0.2,
+      });
+
+      return response.choices[0]?.message?.content?.trim() || '';
+    } catch (error) {
+      console.error('❌ [KNOWLEDGE ENGINE] Theme extraction failed:', error);
+      return '';
+    }
+  }
+
+  /**
+   * Generate topic name from extracted themes
+   */
+  private async generateTopicNameFromThemes(themes: string, cluster: any): Promise<string | null> {
+    if (!themes) return null;
+
+    try {
+      const prompt = `Based on these identified themes from a cluster of ${cluster.size} knowledge points, create a concise topic name.
+
+Identified Themes: ${themes}
+
+Create a topic name that:
+- Is 2-4 words maximum
+- Captures the OVERARCHING theme that connects all these points
+- Is specific and technical when appropriate
+- Avoids generic terms like "Discussion", "General", "Various"
+- Focuses on the bigger picture, not individual details
+
+Examples of good topic names:
+- "API Authentication"
+- "React Performance"  
+- "Database Migration"
+- "CI/CD Pipeline"
+- "Error Handling"
+
+Topic Name:`;
+
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 15,
+        temperature: 0.1, // Very low for consistency
+      });
+
+      return response.choices[0]?.message?.content?.trim() || null;
+    } catch (error) {
+      console.error('❌ [KNOWLEDGE ENGINE] Topic name generation failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get cluster statistics for better context
+   */
+  private getClusterStats(cluster: any): string {
+    const platforms = cluster.points.map((p: any) => p.knowledge_sources?.platform).filter(Boolean);
+    const sourceTypes = cluster.points.map((p: any) => p.knowledge_sources?.source_type).filter(Boolean);
+    
+    const platformCounts = platforms.reduce((acc: Record<string, number>, platform: string) => {
+      acc[platform] = (acc[platform] || 0) + 1;
+      return acc;
+    }, {});
+    
+    const sourceCounts = sourceTypes.reduce((acc: Record<string, number>, type: string) => {
+      acc[type] = (acc[type] || 0) + 1;
+      return acc;
+    }, {});
+    
+    const platformSummary = Object.entries(platformCounts)
+      .map(([platform, count]) => `${platform}: ${count}`)
+      .join(', ');
+    
+    const sourceSummary = Object.entries(sourceCounts)
+      .map(([type, count]) => `${type}: ${count}`)
+      .join(', ');
+    
+    return `Platforms: ${platformSummary}; Sources: ${sourceSummary}`;
   }
 
   /**
