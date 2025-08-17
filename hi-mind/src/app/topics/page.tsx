@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { AppShell } from "@/components/layout/app-shell"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { TopicGraph } from "@/components/topics/topic-graph"
+import { KnowledgeSpaceGraph } from "@/components/topics/knowledge-space-graph-css"
 import { cn } from "@/lib/utils"
 
 interface Topic {
@@ -34,7 +35,7 @@ export default function TopicsPage() {
   const [stats, setStats] = useState<TopicsStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [discovering, setDiscovering] = useState(false)
-  const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph')
+  const [viewMode, setViewMode] = useState<'graph' | 'space' | 'list'>('space')
 
   useEffect(() => {
     fetchTopics()
@@ -137,13 +138,22 @@ export default function TopicsPage() {
             {/* View Mode Toggle */}
             <div className="flex bg-secondary/50 rounded-lg p-1">
               <Button
+                variant={viewMode === 'space' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('space')}
+                className="text-xs sm:text-sm"
+              >
+                <Target className="h-4 w-4 mr-1" />
+                Space
+              </Button>
+              <Button
                 variant={viewMode === 'graph' ? 'default' : 'ghost'}
                 size="sm"
                 onClick={() => setViewMode('graph')}
                 className="text-xs sm:text-sm"
               >
                 <Network className="h-4 w-4 mr-1" />
-                Graph
+                Topics
               </Button>
               <Button
                 variant={viewMode === 'list' ? 'default' : 'ghost'}
@@ -189,7 +199,11 @@ export default function TopicsPage() {
             </div>
           ) : (
             <>
-              {viewMode === 'graph' ? (
+              {viewMode === 'space' ? (
+                <div className="h-full">
+                  <KnowledgeSpaceGraph />
+                </div>
+              ) : viewMode === 'graph' ? (
                 <div className="h-full">
                   <TopicGraph topics={topics} />
                 </div>
