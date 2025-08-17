@@ -3,15 +3,11 @@
 import { createClient } from '@/utils/supabase/client'
 import { createServerClient } from '@/utils/supabase/server'
 import type { 
-  Database, 
   PersonWithIdentities, 
-  KnowledgeSourceWithPoint,
   TopicWithExperts,
   ApiResponse,
-  PaginatedResponse,
   KnowledgeMatch,
-  ExpertMatch,
-  SearchResult
+  ExpertMatch
 } from '@/types/database'
 
 type SupabaseClient = ReturnType<typeof createClient>
@@ -26,6 +22,7 @@ export const getSupabaseClient = (serverSide = false) => {
     // Check if we're in a request context
     try {
       // Try to access cookies to see if we're in a request context
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { cookies } = require('next/headers');
       cookies();
       // We're in a request context, use server client with cookies
@@ -33,6 +30,7 @@ export const getSupabaseClient = (serverSide = false) => {
     } catch {
       // We're not in a request context (background process, Knowledge Engine, etc.)
       // Use service client instead
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { createServiceClient } = require('@/utils/supabase/service');
       return createServiceClient();
     }

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { SlackBackfill } from '@/integrations/slack/backfill'
 import { getSlackConfig } from '@/integrations/slack/config'
 
-export async function POST(request: NextRequest) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function POST(_request: NextRequest) {
   try {
     console.log('🔄 [API] Slack backfill requested via UI')
 

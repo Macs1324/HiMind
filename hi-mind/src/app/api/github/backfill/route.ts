@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { startGitHubIntegration } from '@/integrations/github/integration'
 
-export async function POST(request: NextRequest) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function POST(_request: NextRequest) {
   try {
     console.log('🔄 [API] GitHub backfill requested via UI')
 

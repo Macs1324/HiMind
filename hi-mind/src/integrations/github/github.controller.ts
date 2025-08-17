@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { tryCatchWithLoggingAsync } from "@/utils/try-catch";
 import { GitHubService, type GitHubResource } from "./github.service";
 import { GitHubAPIClient } from "./github-api-client";

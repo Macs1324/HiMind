@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useState, useEffect } from "react"
+import Link from "next/link"
 import {
   Card,
   CardContent,
@@ -32,7 +33,7 @@ interface Organization {
   id: string
   name: string
   slug: string
-  settings: Record<string, any>
+  settings: Record<string, unknown>
   created_at: string
 }
 
@@ -497,10 +498,10 @@ export function OrganizationSetup() {
                 </a>
               </Button>
               <Button variant="outline" className="justify-start w-full" asChild>
-                <a href="/">
+                <Link href="/">
                   <Building2 className="mr-2 h-4 w-4" />
                   Dashboard
-                </a>
+                </Link>
               </Button>
               <Button variant="outline" className="justify-start w-full" asChild>
                 <a href="/topics">

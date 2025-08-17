@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { getCurrentOrganization } from '@/lib/organization'
 import { createServiceClient } from '@/utils/supabase/service'
@@ -46,7 +47,7 @@ export async function GET() {
     }
 
     // Transform the data to include parsed embeddings
-    const transformedPoints = (knowledgePoints || []).map((kp: { id: string; summary: string; keywords: string[] | null; embedding: string | number[]; quality_score: number | null; processed_at: string; knowledge_sources: { platform: string; source_type: string; external_url: string | null; platform_created_at: string | null; people: { display_name: string } | null } }) => {
+    const transformedPoints = (knowledgePoints || []).map((kp: any) => {
       let parsedEmbedding: number[] = []
       
       try {

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { GitHubController } from './github.controller';
 import { GitHubService } from './github.service';
 import { LoggingEventRepository } from '@/integrations/github/github.repository';

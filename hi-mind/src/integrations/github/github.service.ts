@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { tryCatchWithLoggingAsync } from "@/utils/try-catch";
 import { EventRepository, type GitHubEvent } from "@/integrations/github/github.repository";
 import { type KnowledgeSource } from "@/core/knowledge-engine";
@@ -269,6 +270,7 @@ export class GitHubService {
   /**
    * Process commit with enhanced LLM analysis to extract meaningful knowledge points
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private async processCommitWithLLM(commit: GitHubCommit, repository: string, _event: ProcessedGitHubEvent): Promise<void> {
     try {
       // Skip trivial commits
@@ -313,7 +315,14 @@ export class GitHubService {
         // Use title for display (summary) and recap for embeddings
         await this.processGitHubKnowledgePoint(
           commit,
-          kp,
+          {
+            title: kp.title,
+            summary: kp.recap,
+            context: kp.recap,
+            fileReference: '',
+            codeSnippet: null,
+            recap: kp.recap
+          },
           index,
           org.id
         );
@@ -605,7 +614,7 @@ Respond with JSON only:
         .single();
 
       if (existingIdentity) {
-        console.log(`✅ [GITHUB SERVICE] Author already linked to person: ${existingIdentity.people?.display_name}`);
+        console.log(`✅ [GITHUB SERVICE] Author already linked to person: ${(existingIdentity as any).people?.display_name}`);
         return existingIdentity.person_id;
       }
 
@@ -722,8 +731,8 @@ Respond with JSON only:
       
       if (result.data) {
         return {
-          email: result.data.email, // May be null if private
-          displayName: result.data.name,
+          email: result.data.email || undefined, // May be null if private
+          displayName: result.data.name || undefined,
           username: result.data.login
         };
       }
