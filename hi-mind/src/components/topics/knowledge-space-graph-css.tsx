@@ -38,10 +38,15 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
   const [nodes, setNodes] = useState<KnowledgePointNode[]>([])
   const [selectedNode, setSelectedNode] = useState<KnowledgePointNode | null>(null)
   const [loading, setLoading] = useState(true)
+  const [initializing, setInitializing] = useState(false)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  
+  // Pre-computed similarity matrix for performance
+  const [similarityMatrix, setSimilarityMatrix] = useState<number[][]>([])
+  const [physicsEnabled, setPhysicsEnabled] = useState(true)
 
   // Color mapping for different platforms
   const getPlatformColor = (platform: string): string => {
@@ -129,73 +134,166 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
     return positions
   }
 
-  // Initialize knowledge points with embedding-based clustering
+  // Pre-compute similarity matrix in chunks to avoid blocking the UI
+  const computeSimilarityMatrix = async (knowledgePoints: KnowledgePoint[]): Promise<number[][]> => {
+    const matrix: number[][] = []
+    const n = knowledgePoints.length
+    
+    console.log(`Pre-computing ${n}x${n} similarity matrix in chunks...`)
+    
+    // Initialize matrix
+    for (let i = 0; i < n; i++) {
+      matrix[i] = new Array(n)
+    }
+    
+    // Compute in chunks to avoid blocking the UI
+    const chunkSize = 50 // Process 50 rows at a time
+    
+    for (let startRow = 0; startRow < n; startRow += chunkSize) {
+      const endRow = Math.min(startRow + chunkSize, n)
+      
+      // Process chunk
+      for (let i = startRow; i < endRow; i++) {
+        for (let j = 0; j < n; j++) {
+          if (i === j) {
+            matrix[i][j] = 1
+          } else if (j < i) {
+            matrix[i][j] = matrix[j][i] // Use symmetry
+          } else {
+            matrix[i][j] = cosineSimilarity(knowledgePoints[i].embedding, knowledgePoints[j].embedding)
+          }
+        }
+      }
+      
+      // Yield control back to the browser between chunks
+      if (endRow < n) {
+        await new Promise(resolve => setTimeout(resolve, 0))
+      }
+    }
+    
+    console.log(`Similarity matrix computed`)
+    return matrix
+  }
+
+  // Initialize knowledge points with simple positioning (no expensive calculations)
   useEffect(() => {
     const initializeGraph = async () => {
       const knowledgePoints = await fetchKnowledgePoints()
       if (!knowledgePoints.length) return
 
-      console.log(`Positioning ${knowledgePoints.length} knowledge points based on embeddings...`)
+      console.log(`Loading ${knowledgePoints.length} knowledge points...`)
       
-      // Calculate 2D positions based on embedding similarities
-      const positions = reduceEmbeddingsTo2D(knowledgePoints)
-      
-      const newNodes: KnowledgePointNode[] = knowledgePoints.map((kp, index) => {
+      // Create nodes with simple positioning - no embeddings computation
+      const nodes: KnowledgePointNode[] = knowledgePoints.map((kp, index) => {
         const radius = Math.max(12, Math.min(30, kp.summary.length / 15 + kp.qualityScore * 10))
+        
+        // Simple spiral arrangement
+        const angle = (index / knowledgePoints.length) * Math.PI * 2
+        const distance = 120 + Math.random() * 180
         
         return {
           ...kp,
-          x: positions[index].x,
-          y: positions[index].y,
-          vx: (Math.random() - 0.5) * 0.5, // Smaller initial velocities
-          vy: (Math.random() - 0.5) * 0.5,
+          x: 400 + Math.cos(angle) * distance,
+          y: 300 + Math.sin(angle) * distance,
+          vx: (Math.random() - 0.5) * 1,
+          vy: (Math.random() - 0.5) * 1,
           radius,
           color: getPlatformColor(kp.platform)
         }
       })
 
-      console.log(`Positioned nodes in clusters based on semantic similarity`)
-      setNodes(newNodes)
+      // Show nodes immediately
+      setNodes(nodes)
+      
+      // Start computing similarity matrix in background (only if needed for physics)
+      setTimeout(async () => {
+        setInitializing(true)
+        const simMatrix = await computeSimilarityMatrix(knowledgePoints)
+        setSimilarityMatrix(simMatrix)
+        setInitializing(false)
+        console.log(`Similarity matrix ready for physics`)
+      }, 1000) // Wait 1 second before starting background computation
     }
 
     initializeGraph()
   }, [])
 
-  // Physics simulation with embedding-based clustering forces
+  // Optimized physics simulation
   useEffect(() => {
-    if (!nodes.length) return
+    if (!nodes.length || !physicsEnabled) return
+    
+    // Use simple physics if similarity matrix isn't ready yet
+    const useSimplePhysics = !similarityMatrix.length
 
     const interval = setInterval(() => {
       setNodes(prevNodes => {
-        return prevNodes.map(node => {
+        return prevNodes.map((node, nodeIndex) => {
           let fx = 0, fy = 0
 
-          // Calculate forces based on embedding similarities
-          prevNodes.forEach(other => {
-            if (other.id === node.id) return
-            
-            const similarity = cosineSimilarity(node.embedding, other.embedding)
-            const dx = node.x - other.x
-            const dy = node.y - other.y
-            const distance = Math.sqrt(dx * dx + dy * dy) || 1
-            
-            // Target distance based on similarity: similar = closer, different = farther
-            const targetDistance = (1 - similarity) * 150 + 30 // 30-180px range
-            const force = (distance - targetDistance) / distance * 0.002
-            
-            fx -= dx * force
-            fy -= dy * force
-          })
+          if (useSimplePhysics) {
+            // Simple repulsion-only physics when similarity matrix isn't ready
+            prevNodes.forEach((other, otherIndex) => {
+              if (nodeIndex === otherIndex) return
+              
+              const dx = node.x - other.x
+              const dy = node.y - other.y
+              const distance = Math.sqrt(dx * dx + dy * dy) || 1
+              
+              // Calculate minimum distance based on both nodes' radii
+              const minDistance = node.radius + other.radius + 10
+              
+              // Simple repulsion within range
+              if (distance < 150) {
+                const repulsiveForce = (150 - distance) / distance * 0.02
+                fx += dx * repulsiveForce
+                fy += dy * repulsiveForce
+              }
+            })
+          } else {
+            // Use pre-computed similarity matrix for semantic clustering
+            prevNodes.forEach((other, otherIndex) => {
+              if (nodeIndex === otherIndex) return
+              
+              const similarity = similarityMatrix[nodeIndex][otherIndex]
+              const dx = node.x - other.x
+              const dy = node.y - other.y
+              const distance = Math.sqrt(dx * dx + dy * dy) || 1
+              
+              // Calculate minimum distance based on both nodes' radii (collision detection)
+              const minDistance = node.radius + other.radius + 10 // Larger buffer to prevent overlap
+              
+              // Only apply forces to nearby nodes for performance
+              if (distance < 400) {
+                let targetDistance: number
+                
+                // If nodes are overlapping, prioritize separation
+                if (distance < minDistance) {
+                  targetDistance = minDistance
+                  // Much stronger repulsive force for overlapping nodes
+                  const repulsiveForce = (minDistance - distance) / distance * 0.05
+                  fx += dx * repulsiveForce
+                  fy += dy * repulsiveForce
+                } else {
+                  // Normal clustering based on similarity (more spread out)
+                  targetDistance = (1 - similarity) * 200 + 60 // 60-260px range (more spread out)
+                  const force = (distance - targetDistance) / distance * 0.002 // More responsive force
+                  
+                  fx -= dx * force
+                  fy -= dy * force
+                }
+              }
+            })
+          }
 
           // Very gentle attraction to center to prevent drift
           const centerX = 400
           const centerY = 300
-          fx += (centerX - node.x) * 0.0001
-          fy += (centerY - node.y) * 0.0001
+          fx += (centerX - node.x) * 0.00002
+          fy += (centerY - node.y) * 0.00002
 
-          // Update velocity with strong damping for stability
-          const newVx = (node.vx + fx) * 0.98
-          const newVy = (node.vy + fy) * 0.98
+          // Update velocity with moderate damping for more responsiveness
+          const newVx = (node.vx + fx) * 0.88 // Less damping for more responsiveness
+          const newVy = (node.vy + fy) * 0.88
 
           return {
             ...node,
@@ -206,10 +304,10 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
           }
         })
       })
-    }, 50) // 20 FPS
+    }, 50) // Increased to 20 FPS for more responsiveness
 
     return () => clearInterval(interval)
-  }, [nodes.length])
+  }, [nodes.length, physicsEnabled, similarityMatrix.length])
 
   // Mouse handlers for panning
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -279,6 +377,14 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
           className="backdrop-blur-sm"
         >
           <RotateCcw className="h-4 w-4" />
+        </Button>
+        <Button
+          size="sm"
+          variant={physicsEnabled ? "default" : "outline"}
+          onClick={() => setPhysicsEnabled(!physicsEnabled)}
+          className="backdrop-blur-sm"
+        >
+          {physicsEnabled ? "⏸️" : "▶️"}
         </Button>
       </div>
 
@@ -368,6 +474,12 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
       {/* Stats */}
       <div className="absolute bottom-3 right-3 text-xs text-muted-foreground z-30">
         {nodes.length} knowledge points
+        {initializing && (
+          <div className="flex items-center gap-1 mt-1">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span>Computing clusters...</span>
+          </div>
+        )}
       </div>
     </div>
   )
