@@ -30,6 +30,7 @@ interface KnowledgePointNode extends KnowledgePoint {
   color: string
 }
 
+
 interface KnowledgeSpaceGraphProps {
   className?: string
 }
@@ -241,6 +242,21 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
     }
   }
 
+  // Generate consistent author colors using Nord palette
+  const getAuthorColor = (authorName: string | undefined): string => {
+    if (!authorName) return nordColors[0] // Default color for unknown authors
+    
+    // Create a simple hash from the author name
+    let hash = 0
+    for (let i = 0; i < authorName.length; i++) {
+      hash = authorName.charCodeAt(i) + ((hash << 5) - hash)
+    }
+    
+    // Use the hash to pick a Nord color
+    const colorIndex = Math.abs(hash) % nordColors.length
+    return nordColors[colorIndex]
+  }
+
   // Calculate cosine similarity between two embeddings
   const cosineSimilarity = (a: number[], b: number[]): number => {
     if (a.length !== b.length) return 0
@@ -343,7 +359,7 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
     return matrix
   }
 
-  // Initialize knowledge points with simple positioning (no expensive calculations)
+  // Initialize knowledge points with author-based coloring
   useEffect(() => {
     const initializeGraph = async () => {
       const knowledgePoints = await fetchKnowledgePoints()
@@ -351,11 +367,8 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
 
       console.log(`Loading ${knowledgePoints.length} knowledge points...`)
       
-      // Extract all embeddings for color normalization
-      const allEmbeddings = knowledgePoints.map(kp => kp.embedding).filter(emb => emb && emb.length > 0)
-      
-      // Create nodes with simple positioning - no embeddings computation
-      const nodes: KnowledgePointNode[] = knowledgePoints.map((kp, index) => {
+      // Create knowledge point nodes with author-based coloring
+      const knowledgeNodes: KnowledgePointNode[] = knowledgePoints.map((kp, index) => {
         const radius = Math.max(12, Math.min(30, kp.summary.length / 15 + kp.qualityScore * 10))
         
         // Simple spiral arrangement
@@ -369,30 +382,31 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
           vx: (Math.random() - 0.5) * 1,
           vy: (Math.random() - 0.5) * 1,
           radius,
-          color: getNordColorFallback(kp.embedding, index) // Use Nord fallback initially
+          color: getAuthorColor(kp.authorName) // Color based on author
         }
       })
 
-      // Show nodes immediately
-      setNodes(nodes)
+      // Show author distribution
+      const authorCounts = new Map<string, number>()
+      knowledgePoints.forEach(kp => {
+        if (kp.authorName) {
+          authorCounts.set(kp.authorName, (authorCounts.get(kp.authorName) || 0) + 1)
+        }
+      })
       
-      // Start computing similarity matrix in background (only if needed for physics)
+      console.log(`Author distribution:`, Object.fromEntries(authorCounts))
+
+      // Show nodes immediately
+      setNodes(knowledgeNodes)
+      
+      // Start computing similarity matrix in background for physics
       setTimeout(async () => {
         setInitializing(true)
         const simMatrix = await computeSimilarityMatrix(knowledgePoints)
         setSimilarityMatrix(simMatrix)
         setInitializing(false)
         console.log(`Similarity matrix ready for physics`)
-        
-        // Update colors based on similarity matrix
-        const newColors = generateColorsFromSimilarityMatrix(simMatrix, knowledgePoints)
-        setNodes(prevNodes => 
-          prevNodes.map((node, index) => ({
-            ...node,
-            color: newColors[index] || node.color
-          }))
-        )
-      }, 1000) // Wait 1 second before starting background computation
+      }, 1000)
     }
 
     initializeGraph()
@@ -714,6 +728,7 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
           </Card>
         </div>
       )}
+
 
       {/* Stats */}
       <div className="absolute bottom-3 right-3 text-xs text-muted-foreground z-30">
