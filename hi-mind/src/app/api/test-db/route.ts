@@ -15,13 +15,15 @@ export async function GET(request: NextRequest) {
     
     const supabase = createClient(supabaseUrl, supabaseKey)
     
-    // Check knowledge sources and points counts
+    // Check knowledge sources, points, and topics counts
     const [
       { count: sourcesCount },
-      { count: pointsCount }
+      { count: pointsCount },
+      { count: topicsCount }
     ] = await Promise.all([
       supabase.from('knowledge_sources').select('*', { count: 'exact', head: true }),
-      supabase.from('knowledge_points').select('*', { count: 'exact', head: true })
+      supabase.from('knowledge_points').select('*', { count: 'exact', head: true }),
+      supabase.from('discovered_topics').select('*', { count: 'exact', head: true })
     ])
 
     // Get a sample knowledge source
@@ -35,6 +37,13 @@ export async function GET(request: NextRequest) {
     const { data: samplePoint } = await supabase
       .from('knowledge_points')
       .select('id, source_id, summary, quality_score')
+      .limit(1)
+      .single()
+
+    // Check discovered topics
+    const { data: sampleTopic } = await supabase
+      .from('discovered_topics')
+      .select('id, name, knowledge_point_count, confidence_score')
       .limit(1)
       .single()
 
@@ -53,11 +62,13 @@ export async function GET(request: NextRequest) {
       message: 'Database analysis complete',
       counts: {
         knowledge_sources: sourcesCount,
-        knowledge_points: pointsCount
+        knowledge_points: pointsCount,
+        discovered_topics: topicsCount
       },
       samples: {
         source: sampleSource,
-        point: samplePoint
+        point: samplePoint,
+        topic: sampleTopic
       },
       searchTest: {
         result: searchResult,

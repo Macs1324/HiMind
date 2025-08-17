@@ -1,8 +1,8 @@
 # HiMind 🧠
 
-**Instantly find who knows what in your organization**
+**AI-powered workplace learning through knowledge discovery**
 
-HiMind automatically maps your team's real expertise by analyzing actual work - code reviews, Slack discussions, documentation contributions - then instantly routes questions to the right expert or surfaces their past explanations.
+HiMind discovers and maps organizational knowledge by analyzing actual work - Slack discussions, GitHub contributions, documentation - using embeddings and ML to surface hidden expertise and connect people with the knowledge they need. No Q&A database, just intelligent retrieval of knowledge points and expertise mapping.
 
 ## 🚀 Quick Start
 
@@ -12,36 +12,40 @@ HiMind automatically maps your team's real expertise by analyzing actual work - 
 
 ## 💡 The Problem
 
-In fast-moving startups:
+In modern organizations:
 
-- Knowledge is scattered across Slack threads and people's heads
-- New hires waste weeks figuring out who to ask
-- Senior engineers are constantly interrupted
-- The same problems get solved multiple times
+- Knowledge is scattered across platforms without connections
+- Expertise is hidden - you don't know who knows what
+- Valuable insights are lost in message history
+- Knowledge clusters and patterns remain invisible
+- No way to discover emerging areas of expertise
 
 ## ✨ How It Works
 
-1. **Connect** your Slack and GitHub
-2. **HiMind analyzes** who answers questions, reviews code, and fixes issues
-3. **Ask anything** via Slack command or web interface
-4. **Get instant answers** from past explanations or get routed to the right expert
+1. **Ingest** content from Slack, GitHub, and other platforms
+2. **Extract** knowledge points using NLP and create embeddings
+3. **Discover** topic clusters and expertise patterns through ML
+4. **Retrieve** relevant knowledge through semantic search
+5. **Connect** to experts when knowledge gaps exist
 
 ## 🎯 Key Features
 
-- **Expertise Mapping**: Automatically discovers who knows what from actual work
-- **Smart Routing**: Routes questions to available experts in the right timezone
-- **Knowledge Preservation**: Captures and surfaces past explanations
-- **Visual Knowledge Graph**: See your team's expertise distribution at a glance
+- **Semantic Knowledge Search**: Find knowledge using natural language, not keywords
+- **Emergent Topic Discovery**: Topics and expertise areas emerge from embedding clusters
+- **Expertise Mapping**: Understand who knows what based on actual contributions
+- **Knowledge Graphs**: Visualize expertise networks and knowledge distribution
+- **No Q&A Database**: Knowledge points are discovered and retrieved, not manually curated
 
 ## 🛠 Tech Stack
 
 - **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS
 - **UI Components**: shadcn/ui, Radix UI, Lucide React
 - **Backend**: Next.js API Routes, Supabase
-- **Database**: PostgreSQL (Supabase)
-- **Authentication**: Supabase Auth
-- **Integrations**: Slack Web API, Slack Socket Mode
-- **Development**: ESLint, TypeScript, Docker
+- **Database**: PostgreSQL with pgvector for embeddings
+- **ML/AI**: OpenAI embeddings, vector similarity search
+- **NLP**: Topic extraction, entity recognition, quality scoring
+- **Integrations**: Slack API, GitHub API
+- **Development**: TypeScript, ESLint, Docker
 
 ## 📂 Project Structure
 
@@ -60,14 +64,15 @@ TODO
 - All expertise attribution is transparent
 - GDPR compliant with right-to-be-forgotten
 
-## 📈 Metrics
+## 📈 Core Metrics
 
 HiMind tracks:
 
-- **Resolution Time**: From question to answer
-- **Knowledge Reuse**: % of questions answered from history
-- **Expert Load**: Distribution of questions across team
-- **Coverage**: % of topics with identified experts
+- **Knowledge Coverage**: How much organizational knowledge is captured
+- **Topic Emergence**: New expertise areas discovered through clustering
+- **Expertise Distribution**: Who knows what and knowledge concentration
+- **Retrieval Effectiveness**: Semantic search precision and recall
+- **Knowledge Health**: Gaps, risks, and opportunities in organizational knowledge
 
 ---
 

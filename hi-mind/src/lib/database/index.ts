@@ -140,6 +140,24 @@ export class PeopleService {
     }
   }
 
+  async getPersonByEmail(email: string, organizationId: string) {
+    const { data, error } = await this.supabase
+      .from('people')
+      .select(`
+        *,
+        external_identities (*)
+      `)
+      .eq('email', email.toLowerCase().trim())
+      .eq('organization_id', organizationId)
+      .single()
+
+    return { 
+      data, 
+      error: error?.message || null, 
+      success: !error 
+    }
+  }
+
   async listPeople(organizationId: string): Promise<ApiResponse<PersonWithIdentities[]>> {
     const { data, error } = await this.supabase
       .from('people')

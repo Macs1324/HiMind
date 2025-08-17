@@ -146,9 +146,9 @@ export class SlackServiceImpl implements SlackService {
 
   private async processSlackContent(source: KnowledgeSource): Promise<void> {
     try {
-      // Skip processing very short messages or bot messages
-      if (source.content.length < 20 || source.content.includes('<@U') || source.content.startsWith('!')) {
-        console.log(`⏭️ [SLACK SERVICE] Skipping short/bot message: ${source.externalId}`);
+      // Enhanced content quality filtering
+      if (!this.isHighQualitySlackContent(source.content)) {
+        console.log(`⏭️ [SLACK SERVICE] Skipping low-quality message: ${source.externalId}`);
         return;
       }
 
@@ -166,5 +166,60 @@ export class SlackServiceImpl implements SlackService {
       console.error(`❌ [SLACK SERVICE] Failed to process content ${source.externalId}:`, error);
       // Don't throw - we want Slack events to continue processing even if knowledge processing fails
     }
+  }
+
+  /**
+   * Determine if Slack content is high-quality enough for knowledge extraction
+   */
+  private isHighQualitySlackContent(content: string): boolean {
+    // Clean the content for analysis
+    const cleanContent = content.trim().toLowerCase();
+    
+    // Minimum length requirement
+    if (cleanContent.length < 15) {
+      return false;
+    }
+
+    // Skip bot messages and system messages
+    if (content.includes('<@U') || content.includes('has joined') || content.includes('has left')) {
+      return false;
+    }
+
+    // Skip emoji-only or reaction messages
+    const emojiOnlyPattern = /^[\s\p{Emoji}\p{Emoji_Modifier}\p{Emoji_Component}\p{Emoji_Modifier_Base}\p{Emoji_Presentation}]+$/u;
+    if (emojiOnlyPattern.test(cleanContent)) {
+      return false;
+    }
+
+    // Skip very short acknowledgments and social messages
+    const lowValuePatterns = [
+      /^(thanks?|thx|ty|thank you)!*$/,
+      /^(ok|okay|sure|yep|yes|no)!*$/,
+      /^(lol|haha|😂|👍|👌|🔥|💯)+$/,
+      /^(good|nice|cool|awesome|great)!*$/,
+      /^(morning|afternoon|evening|night|hello|hi|hey|bye)!*$/,
+      /^(agreed|exactly|this|same|ditto|\+1)!*$/
+    ];
+
+    if (lowValuePatterns.some(pattern => pattern.test(cleanContent))) {
+      return false;
+    }
+
+    // Require substantive content (questions, statements, explanations)
+    const hasSubstantiveContent = 
+      cleanContent.includes('?') || // Questions
+      cleanContent.includes('because') || // Explanations  
+      cleanContent.includes('should') || // Suggestions
+      cleanContent.includes('will') || // Plans
+      cleanContent.includes('can') || // Capabilities
+      cleanContent.includes('issue') || // Problems
+      cleanContent.includes('problem') || // Problems
+      cleanContent.includes('solution') || // Solutions
+      cleanContent.includes('idea') || // Ideas
+      cleanContent.split(' ').length >= 5; // Minimum word count
+
+    // Must have multiple words and substantive content
+    const wordCount = cleanContent.split(/\s+/).length;
+    return wordCount >= 3 && hasSubstantiveContent;
   }
 }

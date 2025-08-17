@@ -28,7 +28,7 @@ interface NavItem {
 const navigation: NavItem[] = [
   { title: "Dashboard", icon: Home, href: "/" },
   { title: "Search Knowledge", icon: Search, href: "/search" },
-  { title: "Topics", icon: Brain, href: "/topics" },
+  { title: "Brain View", icon: Brain, href: "/topics" },
   { title: "People", icon: Users, href: "/people" },
   { title: "Setup", icon: Wrench, href: "/setup" },
 ]

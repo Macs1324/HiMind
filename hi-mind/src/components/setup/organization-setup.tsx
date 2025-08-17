@@ -22,6 +22,9 @@ import {
   Database,
   RefreshCw,
   MessageSquare,
+  Github,
+  UserPlus,
+  Target,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -38,6 +41,9 @@ export function OrganizationSetup() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [backfilling, setBackfilling] = useState(false)
+  const [githubBackfilling, setGithubBackfilling] = useState(false)
+  const [consolidating, setConsolidating] = useState(false)
+  const [discoveringTopics, setDiscoveringTopics] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const [formData, setFormData] = useState({
@@ -151,6 +157,84 @@ export function OrganizationSetup() {
       setMessage({ type: 'error', text: 'Failed to start Slack backfill' })
     } finally {
       setBackfilling(false)
+    }
+  }
+
+  const triggerGithubBackfill = async () => {
+    try {
+      setGithubBackfilling(true)
+      setMessage(null)
+
+      const response = await fetch('/api/github/backfill', {
+        method: 'POST',
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setMessage({ type: 'success', text: `GitHub backfill started for ${data.repository}! Check the console for progress.` })
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to start GitHub backfill' })
+      }
+    } catch (error) {
+      console.error('Failed to start GitHub backfill:', error)
+      setMessage({ type: 'error', text: 'Failed to start GitHub backfill' })
+    } finally {
+      setGithubBackfilling(false)
+    }
+  }
+
+  const consolidatePeople = async () => {
+    try {
+      setConsolidating(true)
+      setMessage(null)
+
+      const response = await fetch('/api/people/consolidate', {
+        method: 'POST',
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setMessage({ type: 'success', text: data.message || 'People consolidation completed successfully!' })
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to consolidate people' })
+      }
+    } catch (error) {
+      console.error('Failed to consolidate people:', error)
+      setMessage({ type: 'error', text: 'Failed to consolidate people' })
+    } finally {
+      setConsolidating(false)
+    }
+  }
+
+  const discoverTopics = async () => {
+    try {
+      setDiscoveringTopics(true)
+      setMessage(null)
+
+      const response = await fetch('/api/topics/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          minClusterSize: 3,
+          maxClusters: 15,
+          similarityThreshold: 0.7
+        })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setMessage({ type: 'success', text: data.message || 'Topic discovery completed successfully!' })
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to discover topics' })
+      }
+    } catch (error) {
+      console.error('Failed to discover topics:', error)
+      setMessage({ type: 'error', text: 'Failed to discover topics' })
+    } finally {
+      setDiscoveringTopics(false)
     }
   }
 
@@ -286,7 +370,7 @@ export function OrganizationSetup() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-6 sm:grid-cols-2">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
 
           {/* Database Management */}
           <Card>
@@ -329,7 +413,7 @@ export function OrganizationSetup() {
             <CardContent>
               <Button 
                 onClick={triggerSlackBackfill} 
-                disabled={backfilling || creating}
+                disabled={backfilling || creating || githubBackfilling}
                 variant="outline"
                 className="w-full"
               >
@@ -338,6 +422,33 @@ export function OrganizationSetup() {
               </Button>
               <p className="text-xs text-muted-foreground mt-2">
                 🔄 This will fetch and process historical Slack messages
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* GitHub Integration */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Github className="h-5 w-5" />
+                <span>GitHub Sync</span>
+              </CardTitle>
+              <CardDescription>
+                Sync commits, PRs, and issues from GitHub repository
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button 
+                onClick={triggerGithubBackfill} 
+                disabled={githubBackfilling || creating || backfilling}
+                variant="outline"
+                className="w-full"
+              >
+                <RefreshCw className={cn("mr-2 h-4 w-4", githubBackfilling && "animate-spin")} />
+                {githubBackfilling ? "Syncing..." : "Sync GitHub Data"}
+              </Button>
+              <p className="text-xs text-muted-foreground mt-2">
+                📦 Requires GITHUB_TOKEN and GITHUB_REPOSITORY env vars
               </p>
             </CardContent>
           </Card>
@@ -354,12 +465,30 @@ export function OrganizationSetup() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
               <Button variant="outline" className="justify-start w-full" asChild>
                 <a href="/people">
                   <Users className="mr-2 h-4 w-4" />
                   Manage People
                 </a>
+              </Button>
+              <Button 
+                variant="outline" 
+                className="justify-start w-full" 
+                onClick={consolidatePeople}
+                disabled={consolidating || creating || backfilling || githubBackfilling || discoveringTopics}
+              >
+                <UserPlus className={cn("mr-2 h-4 w-4", consolidating && "animate-pulse")} />
+                {consolidating ? "Consolidating..." : "Merge Duplicates"}
+              </Button>
+              <Button 
+                variant="outline" 
+                className="justify-start w-full" 
+                onClick={discoverTopics}
+                disabled={discoveringTopics || creating || backfilling || githubBackfilling || consolidating}
+              >
+                <Target className={cn("mr-2 h-4 w-4", discoveringTopics && "animate-spin")} />
+                {discoveringTopics ? "Discovering..." : "Discover Topics"}
               </Button>
               <Button variant="outline" className="justify-start w-full" asChild>
                 <a href="/settings">
@@ -373,9 +502,11 @@ export function OrganizationSetup() {
                   Dashboard
                 </a>
               </Button>
-              <Button variant="outline" className="justify-start w-full" disabled>
-                <Database className="mr-2 h-4 w-4" />
-                Topics (Soon)
+              <Button variant="outline" className="justify-start w-full" asChild>
+                <a href="/topics">
+                  <Database className="mr-2 h-4 w-4" />
+                  View Topics
+                </a>
               </Button>
             </div>
           </CardContent>
