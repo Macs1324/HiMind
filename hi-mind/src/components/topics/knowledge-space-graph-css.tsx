@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useEffect, useState } from 'react'
-import { ZoomIn, ZoomOut, RotateCcw, Loader2 } from "lucide-react"
+import { ZoomIn, ZoomOut, RotateCcw, Loader2, MessageSquare, Github } from "lucide-react"
 
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -43,12 +43,180 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const [draggedNode, setDraggedNode] = useState<string | null>(null)
+  const [nodeDragStart, setNodeDragStart] = useState({ x: 0, y: 0 })
+  const [originalNodePosition, setOriginalNodePosition] = useState({ x: 0, y: 0 })
   
   // Pre-computed similarity matrix for performance
   const [similarityMatrix, setSimilarityMatrix] = useState<number[][]>([])
   const [physicsEnabled, setPhysicsEnabled] = useState(true)
 
-  // Color mapping for different platforms
+  // Nord color palette
+  const nordColors = [
+    '#bf616a', // Nord11 - Aurora Red
+    '#d08770', // Nord12 - Aurora Orange  
+    '#ebcb8b', // Nord13 - Aurora Yellow
+    '#a3be8c', // Nord14 - Aurora Green
+    '#88c0d0', // Nord8 - Frost
+    '#81a1c1', // Nord9 - Frost Blue
+    '#b48ead', // Nord15 - Aurora Purple
+    '#5e81ac', // Nord10 - Frost Dark Blue
+  ]
+  
+  // Generate colors based on similarity matrix clustering using Nord palette
+  const generateColorsFromSimilarityMatrix = (similarityMatrix: number[][], knowledgePoints: KnowledgePoint[]): string[] => {
+    const n = knowledgePoints.length
+    if (!similarityMatrix.length || n === 0) {
+      // Fallback to Nord-based colors
+      return knowledgePoints.map((kp, index) => getNordColorFallback(kp.embedding, index))
+    }
+    
+    console.log('Generating colors from similarity matrix...')
+    
+    // Find clusters using a simple greedy approach
+    const visited = new Array(n).fill(false)
+    const clusters: number[][] = []
+    
+    for (let i = 0; i < n; i++) {
+      if (visited[i]) continue
+      
+      // Start a new cluster
+      const cluster = [i]
+      visited[i] = true
+      
+      // Find all nodes similar to this one (similarity > 0.6)
+      for (let j = i + 1; j < n; j++) {
+        if (!visited[j] && similarityMatrix[i][j] > 0.6) {
+          cluster.push(j)
+          visited[j] = true
+        }
+      }
+      
+      clusters.push(cluster)
+    }
+    
+    console.log(`Found ${clusters.length} similarity clusters:`, clusters.map(c => c.length))
+    
+    // Assign colors to each knowledge point based on its cluster
+    const nodeColors = new Array(n)
+    
+    clusters.forEach((cluster, clusterIndex) => {
+      // Assign a Nord color to this cluster
+      const baseNordColor = nordColors[clusterIndex % nordColors.length]
+      
+      cluster.forEach((nodeIndex, positionInCluster) => {
+        if (cluster.length === 1) {
+          // Single node cluster - use base Nord color
+          nodeColors[nodeIndex] = baseNordColor
+        } else {
+          // Multi-node cluster - create variations of the Nord color
+          const variations = generateNordColorVariations(baseNordColor, cluster.length)
+          nodeColors[nodeIndex] = variations[positionInCluster] || baseNordColor
+        }
+      })
+    })
+    
+    return nodeColors
+  }
+  
+  // Generate variations of a Nord base color for cluster members
+  const generateNordColorVariations = (baseColor: string, count: number): string[] => {
+    const variations = [baseColor] // Include the base color
+    
+    // Convert hex to HSL for manipulation
+    const hsl = hexToHsl(baseColor)
+    if (!hsl) return [baseColor]
+    
+    // Generate variations by adjusting lightness and saturation slightly
+    for (let i = 1; i < count; i++) {
+      const lightnessOffset = (i * 8) % 20 - 10 // ±10% lightness variation
+      const saturationOffset = (i * 5) % 10 - 5 // ±5% saturation variation
+      
+      const newLightness = Math.max(20, Math.min(80, hsl.l + lightnessOffset))
+      const newSaturation = Math.max(30, Math.min(90, hsl.s + saturationOffset))
+      
+      variations.push(`hsl(${hsl.h}, ${newSaturation}%, ${newLightness}%)`)
+    }
+    
+    return variations
+  }
+  
+  // Convert hex color to HSL
+  const hexToHsl = (hex: string): { h: number, s: number, l: number } | null => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+    if (!result) return null
+    
+    const r = parseInt(result[1], 16) / 255
+    const g = parseInt(result[2], 16) / 255  
+    const b = parseInt(result[3], 16) / 255
+    
+    return rgbToHsl(r * 255, g * 255, b * 255)
+  }
+  
+  // Fallback Nord color selection
+  const getNordColorFallback = (embedding: number[], index: number): string => {
+    if (!embedding || embedding.length === 0) {
+      return nordColors[index % nordColors.length]
+    }
+    
+    // Simple hash to select a Nord color
+    let hash = 0
+    for (let i = 0; i < Math.min(embedding.length, 10); i++) {
+      hash += Math.abs(embedding[i] * (i + 1))
+    }
+    
+    return nordColors[Math.floor(hash) % nordColors.length]
+  }
+  
+  // Fallback color generation from embedding (when no similarity matrix)
+  const getEmbeddingColorFallback = (embedding: number[]): string => {
+    if (!embedding || embedding.length === 0) {
+      return '#61afef' // Default blue
+    }
+    
+    // Simple weighted sum approach
+    let hash = 0
+    for (let i = 0; i < Math.min(embedding.length, 10); i++) {
+      hash += embedding[i] * (i + 1)
+    }
+    
+    const hue = Math.abs(hash * 137.508) % 360
+    return `hsl(${hue}, 65%, 55%)`
+  }
+  
+  // Helper function to convert RGB to HSL
+  const rgbToHsl = (r: number, g: number, b: number): { h: number, s: number, l: number } => {
+    r /= 255
+    g /= 255
+    b /= 255
+    
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const diff = max - min
+    const sum = max + min
+    const l = sum / 2
+    
+    if (diff === 0) {
+      return { h: 0, s: 0, l: Math.round(l * 100) }
+    }
+    
+    const s = l > 0.5 ? diff / (2 - sum) : diff / sum
+    
+    let h = 0
+    switch (max) {
+      case r: h = ((g - b) / diff + (g < b ? 6 : 0)) / 6; break
+      case g: h = ((b - r) / diff + 2) / 6; break  
+      case b: h = ((r - g) / diff + 4) / 6; break
+    }
+    
+    return {
+      h: Math.round(h * 360),
+      s: Math.round(s * 100),
+      l: Math.round(l * 100)
+    }
+  }
+
+  // Color mapping for different platforms (fallback when no embeddings)
   const getPlatformColor = (platform: string): string => {
     switch (platform.toLowerCase()) {
       case 'slack': return '#e06c75' // Red
@@ -183,6 +351,9 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
 
       console.log(`Loading ${knowledgePoints.length} knowledge points...`)
       
+      // Extract all embeddings for color normalization
+      const allEmbeddings = knowledgePoints.map(kp => kp.embedding).filter(emb => emb && emb.length > 0)
+      
       // Create nodes with simple positioning - no embeddings computation
       const nodes: KnowledgePointNode[] = knowledgePoints.map((kp, index) => {
         const radius = Math.max(12, Math.min(30, kp.summary.length / 15 + kp.qualityScore * 10))
@@ -198,7 +369,7 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
           vx: (Math.random() - 0.5) * 1,
           vy: (Math.random() - 0.5) * 1,
           radius,
-          color: getPlatformColor(kp.platform)
+          color: getNordColorFallback(kp.embedding, index) // Use Nord fallback initially
         }
       })
 
@@ -212,6 +383,15 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
         setSimilarityMatrix(simMatrix)
         setInitializing(false)
         console.log(`Similarity matrix ready for physics`)
+        
+        // Update colors based on similarity matrix
+        const newColors = generateColorsFromSimilarityMatrix(simMatrix, knowledgePoints)
+        setNodes(prevNodes => 
+          prevNodes.map((node, index) => ({
+            ...node,
+            color: newColors[index] || node.color
+          }))
+        )
       }, 1000) // Wait 1 second before starting background computation
     }
 
@@ -228,6 +408,11 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
     const interval = setInterval(() => {
       setNodes(prevNodes => {
         return prevNodes.map((node, nodeIndex) => {
+          // Skip physics for nodes being dragged
+          if (draggedNode === node.id) {
+            return node
+          }
+          
           let fx = 0, fy = 0
 
           if (useSimplePhysics) {
@@ -307,7 +492,7 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
     }, 50) // Increased to 20 FPS for more responsiveness
 
     return () => clearInterval(interval)
-  }, [nodes.length, physicsEnabled, similarityMatrix.length])
+  }, [nodes.length, physicsEnabled, similarityMatrix.length, draggedNode])
 
   // Mouse handlers for panning
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -315,17 +500,44 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
     setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y })
   }
 
+  // Click handler removed - now handled directly on node elements
+
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging) {
+    if (isDragging && !draggedNode) {
+      // Pan the canvas
       setPan({
         x: e.clientX - dragStart.x,
         y: e.clientY - dragStart.y
       })
+    } else if (draggedNode) {
+      // Drag the node
+      const deltaX = (e.clientX - nodeDragStart.x) / zoom
+      const deltaY = (e.clientY - nodeDragStart.y) / zoom
+      
+      setNodes(prevNodes => 
+        prevNodes.map(node => 
+          node.id === draggedNode 
+            ? { 
+                ...node, 
+                x: originalNodePosition.x + deltaX,
+                y: originalNodePosition.y + deltaY,
+                vx: 0, // Stop physics while dragging
+                vy: 0
+              }
+            : node
+        )
+      )
     }
   }
 
   const handleMouseUp = () => {
-    setIsDragging(false)
+    if (draggedNode) {
+      // Release the node and let it snap back
+      setDraggedNode(null)
+      // Physics will naturally pull it back to its cluster
+    } else {
+      setIsDragging(false)
+    }
   }
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -402,24 +614,50 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
         }}
       >
         {/* Knowledge Point Nodes */}
-        {nodes.map(node => (
-          <div
-            key={node.id}
-            className="absolute rounded-full border-2 border-white shadow-lg cursor-pointer transition-all duration-200 hover:scale-110 flex items-center justify-center text-white font-bold text-xs"
-            style={{
-              left: node.x - node.radius,
-              top: node.y - node.radius,
-              width: node.radius * 2,
-              height: node.radius * 2,
-              backgroundColor: node.color,
-              boxShadow: `0 0 ${node.radius}px ${node.color}40`
-            }}
-            onMouseEnter={() => setSelectedNode(node)}
-            onMouseLeave={() => setSelectedNode(null)}
-          >
-            {node.platform.charAt(0).toUpperCase()}
-          </div>
-        ))}
+        {nodes.map(node => {
+          const IconComponent = node.platform.toLowerCase() === 'slack' ? MessageSquare : 
+                              node.platform.toLowerCase() === 'github' ? Github : 
+                              MessageSquare // Default to MessageSquare for other platforms
+          
+          return (
+            <div
+              key={node.id}
+              className="absolute rounded-full border-2 border-white shadow-lg transition-all duration-200 hover:scale-110 flex items-center justify-center text-white select-none"
+              style={{
+                left: node.x - node.radius,
+                top: node.y - node.radius,
+                width: node.radius * 2,
+                height: node.radius * 2,
+                backgroundColor: node.color,
+                boxShadow: `0 0 ${node.radius}px ${node.color}40`,
+                cursor: draggedNode === node.id ? 'grabbing' : 'grab',
+                zIndex: draggedNode === node.id ? 1000 : 1,
+                transform: draggedNode === node.id ? 'scale(1.1)' : 'scale(1)'
+              }}
+              onMouseEnter={() => setSelectedNode(node)}
+              onMouseLeave={() => setSelectedNode(null)}
+              onMouseDown={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                
+                // Start dragging this node
+                setDraggedNode(node.id)
+                setNodeDragStart({ x: e.clientX, y: e.clientY })
+                setOriginalNodePosition({ x: node.x, y: node.y })
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                
+                // Only handle click if we're not dragging and have an external URL
+                if (!draggedNode && node.externalUrl) {
+                  window.open(node.externalUrl, '_blank', 'noopener,noreferrer')
+                }
+              }}
+            >
+              <IconComponent size={Math.max(8, Math.min(16, node.radius * 0.6))} />
+            </div>
+          )
+        })}
       </div>
 
       {/* Info Panel */}
@@ -463,6 +701,12 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
                         </Badge>
                       ))}
                     </div>
+                  </div>
+                )}
+                
+                {selectedNode.externalUrl && (
+                  <div className="mt-3 p-2 bg-primary/10 rounded text-xs text-primary">
+                    💡 Click bubble to view source
                   </div>
                 )}
               </div>
