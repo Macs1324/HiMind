@@ -410,7 +410,14 @@ export class GitHubService {
    */
   private async processGitHubKnowledgePoint(
     commit: GitHubCommit,
-    knowledgePoint: { title: string; recap: string },
+    knowledgePoint: { 
+      title: string; 
+      summary: string;
+      context: string;
+      fileReference: string;
+      codeSnippet: string | null;
+      recap: string; 
+    },
     index: number,
     organizationId: string
   ): Promise<void> {
@@ -419,7 +426,21 @@ export class GitHubService {
       const authorExternalId = commit.author?.login || commit.commit.author?.name || 'unknown';
       const authorPersonId = await this.getOrCreateAuthorPerson(commit, organizationId);
 
-      // 2. Store the raw knowledge source
+      // 2. Store the enhanced knowledge source with detailed metadata
+      const enhancedContent = JSON.stringify({
+        summary: knowledgePoint.summary,
+        context: knowledgePoint.context,
+        fileReference: knowledgePoint.fileReference,
+        codeSnippet: knowledgePoint.codeSnippet,
+        commitSha: commit.sha,
+        commitMessage: commit.commit.message
+      });
+
+      // Create more specific external URL pointing to the file in the commit
+      const fileSpecificUrl = knowledgePoint.fileReference !== 'Unknown file' 
+        ? `${commit.html_url}#diff-${commit.sha.substring(0, 8)}-${knowledgePoint.fileReference.replace(/[^a-zA-Z0-9]/g, '-')}`
+        : `${commit.html_url}#kp-${index}`;
+
       const { data: knowledgeSource, error: sourceError } = await this.supabase
         .from('knowledge_sources')
         .upsert({
@@ -427,9 +448,9 @@ export class GitHubService {
           platform: 'github',
           source_type: 'github_comment',
           external_id: `${commit.sha}-kp-${index}`,
-          external_url: `${commit.html_url}#kp-${index}`,
+          external_url: fileSpecificUrl,
           title: knowledgePoint.title,
-          content: knowledgePoint.recap,
+          content: enhancedContent,
           author_external_id: authorExternalId,
           author_person_id: authorPersonId,
           platform_created_at: commit.commit.author?.date || commit.commit.committer?.date || ''
@@ -444,19 +465,24 @@ export class GitHubService {
         return;
       }
 
-      // 2. Generate embedding from the detailed recap
-      const embedding = await this.generateEmbedding(knowledgePoint.recap);
+      // 3. Generate embedding from the enhanced recap combining summary and context
+      const embeddingText = `${knowledgePoint.title} ${knowledgePoint.summary} ${knowledgePoint.context}`;
+      const embedding = await this.generateEmbedding(embeddingText);
 
-      // 3. Store the processed knowledge point with title as summary
+      // 4. Extract enhanced keywords including technical terms from all fields
+      const allText = `${knowledgePoint.title} ${knowledgePoint.summary} ${knowledgePoint.context} ${knowledgePoint.fileReference}`;
+      const enhancedKeywords = this.extractEnhancedKeywords(allText);
+
+      // 5. Store the processed knowledge point with enhanced metadata
       const { error: pointError } = await this.supabase
         .from('knowledge_points')
         .upsert({
           source_id: knowledgeSource.id,
-          summary: knowledgePoint.title, // Use short title for display
-          keywords: this.extractSimpleKeywords(knowledgePoint.recap),
+          summary: knowledgePoint.title, // Use specific technical title for display
+          keywords: enhancedKeywords,
           embedding: embedding,
-          quality_score: 0.8, // High quality since LLM-extracted
-          relevance_score: 0.8
+          quality_score: 0.9, // Higher quality since enhanced LLM-extracted with context
+          relevance_score: 0.9
         }, {
           onConflict: 'source_id'
         })
@@ -497,11 +523,12 @@ export class GitHubService {
         };
       });
 
-      const prompt = `Analyze this Git commit and extract meaningful knowledge points. Each knowledge point should represent roughly 100-200 lines of logical changes.
+      const prompt = `Analyze this Git commit and extract specific, granular technical knowledge points for a developer knowledge base.
 
 Repository: ${repository}
 Commit Message: ${commit.commit.message}
 Author: ${commit.commit.author?.name || 'Unknown'}
+Commit URL: ${commit.html_url}
 
 Files Changed:
 ${fileSummaries.map(f => `- ${f.filename} (${f.status}, ${f.changes} changes)`).join('\n')}
@@ -509,47 +536,78 @@ ${fileSummaries.map(f => `- ${f.filename} (${f.status}, ${f.changes} changes)`).
 File Diffs:
 ${fileSummaries.map(f => `\n=== ${f.filename} ===\n${f.patch}`).join('\n')}
 
-Extract knowledge points as a JSON array. For each knowledge point:
-1. Create a concise title (3-8 words) describing what was implemented/changed
-2. Write a detailed recap (50-150 words) explaining WHAT was done and WHY, in natural language that would be useful for searching and clustering with non-code discussions
+Extract granular, specific knowledge points as a JSON array. Each knowledge point should be a precise, actionable piece of technical knowledge.
 
-Focus on:
-- New features or functionality
-- Important bug fixes
-- Architecture/design changes
-- API changes
-- Performance improvements
-- Security implementations
+For each knowledge point:
+1. **Title**: Write as a short, specific technical statement (e.g., "User search implemented with fuzzy string matching", "API rate limiting added using token bucket algorithm", "Component state managed with useReducer hook")
 
-Avoid:
-- Minor refactoring
-- Formatting changes
-- Simple variable renames
+2. **Summary**: Technical explanation of HOW it's implemented (30-100 words). Focus on the specific approach, pattern, algorithm, or technique used.
+
+3. **Context**: WHY this approach was chosen or what problem it solves (20-60 words)
+
+4. **FileReference**: Primary file where this knowledge applies
+
+5. **CodeSnippet**: Key code line or small snippet that demonstrates the implementation (optional, 1-2 lines max)
+
+Focus on extracting knowledge about:
+- Specific algorithms, data structures, or patterns used
+- Implementation techniques for features
+- Architecture decisions and their rationale  
+- Performance optimization strategies
+- Security implementation approaches
+- API design patterns and conventions
+- Database queries or schema decisions
+- Frontend state management patterns
+- Error handling and validation strategies
+- Testing approaches and patterns
+
+Make each point very specific and actionable. Prefer multiple granular points over broad summaries.
 
 Respond with JSON only:
 {
   "knowledgePoints": [
     {
-      "title": "Brief descriptive title",
-      "recap": "Detailed natural language description of what was implemented, why it was needed, and how it works. This should read like documentation that a human would write to explain the change to a colleague."
+      "title": "Specific technical statement about implementation",
+      "summary": "Technical explanation of how it's implemented",
+      "context": "Why this approach was chosen or problem it solves", 
+      "fileReference": "path/to/main/file.ext",
+      "codeSnippet": "key code line (optional)"
     }
   ]
 }`;
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4o-mini', // Use more capable model for better extraction
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 1000,
-        temperature: 0.2,
+        max_tokens: 1500, // Increased for more detailed extraction
+        temperature: 0.1, // Lower temperature for more consistent technical extraction
         response_format: { type: "json_object" }
       });
 
       const result = JSON.parse(response.choices[0]?.message?.content || '{"knowledgePoints": []}');
       const knowledgePoints = result.knowledgePoints || [];
 
-      console.log(`🤖 [GITHUB SERVICE] LLM extracted ${knowledgePoints.length} knowledge points from commit ${commit.sha.substring(0, 8)}`);
+      // Validate and enhance knowledge points
+      const enhancedKnowledgePoints = knowledgePoints.map((kp: {
+        title?: string;
+        summary?: string;
+        recap?: string;
+        context?: string;
+        fileReference?: string;
+        codeSnippet?: string | null;
+      }) => ({
+        title: kp.title || 'Unknown implementation',
+        summary: kp.summary || kp.recap || 'No summary available', // Fallback to old 'recap' field
+        context: kp.context || 'Context not specified',
+        fileReference: kp.fileReference || 'Unknown file',
+        codeSnippet: kp.codeSnippet || null,
+        // Generate more detailed recap by combining fields for embedding
+        recap: `${kp.summary || kp.recap || ''} ${kp.context || ''}`.trim()
+      }));
+
+      console.log(`🤖 [GITHUB SERVICE] LLM extracted ${enhancedKnowledgePoints.length} enhanced knowledge points from commit ${commit.sha.substring(0, 8)}`);
       
-      return knowledgePoints;
+      return enhancedKnowledgePoints;
 
     } catch (error) {
       console.error('❌ [GITHUB SERVICE] Failed to extract knowledge points with LLM:', error);
@@ -590,6 +648,51 @@ Respond with JSON only:
 
     const lowerText = text.toLowerCase();
     return techKeywords.filter(keyword => lowerText.includes(keyword));
+  }
+
+  /**
+   * Enhanced keyword extraction for better technical categorization
+   */
+  private extractEnhancedKeywords(text: string): string[] {
+    const enhancedTechKeywords = [
+      // Core Technologies
+      'react', 'next', 'nextjs', 'javascript', 'typescript', 'node', 'nodejs', 'vue', 'angular',
+      // Algorithms & Data Structures
+      'algorithm', 'kmeans', 'clustering', 'similarity', 'cosine', 'embedding', 'vector', 'matrix',
+      'search', 'fuzzy', 'matching', 'sorting', 'indexing', 'caching', 'optimization',
+      // Architecture & Patterns
+      'api', 'rest', 'graphql', 'microservice', 'middleware', 'controller', 'service', 'repository',
+      'component', 'hook', 'reducer', 'context', 'state', 'props', 'callback', 'async', 'promise',
+      // Database & Storage
+      'database', 'sql', 'postgres', 'query', 'schema', 'migration', 'index', 'transaction',
+      'supabase', 'prisma', 'orm', 'nosql', 'redis', 'cache',
+      // Security & Auth
+      'authentication', 'authorization', 'jwt', 'token', 'oauth', 'security', 'validation',
+      'sanitization', 'encryption', 'hashing', 'cors', 'csrf',
+      // DevOps & Infrastructure
+      'docker', 'kubernetes', 'aws', 'deployment', 'ci', 'cd', 'pipeline', 'build', 'test',
+      'monitoring', 'logging', 'error', 'debug', 'performance',
+      // UI/UX & Styling
+      'css', 'tailwind', 'styled', 'responsive', 'ui', 'ux', 'design', 'layout', 'grid', 'flex',
+      'animation', 'transition', 'theme', 'color', 'typography',
+      // File Types & Extensions
+      'tsx', 'jsx', 'ts', 'js', 'css', 'scss', 'json', 'yml', 'yaml', 'md', 'dockerfile'
+    ];
+
+    const lowerText = text.toLowerCase();
+    
+    // Extract matched keywords
+    const foundKeywords = enhancedTechKeywords.filter(keyword => lowerText.includes(keyword));
+    
+    // Extract file extensions
+    const fileExtensions = text.match(/\.\w+/g)?.map(ext => ext.substring(1)) || [];
+    
+    // Extract camelCase or PascalCase technical terms
+    const technicalTerms = text.match(/[A-Z][a-z]+(?:[A-Z][a-z]+)*/g)?.map(term => term.toLowerCase()) || [];
+    
+    // Combine and deduplicate
+    const allKeywords = [...foundKeywords, ...fileExtensions, ...technicalTerms];
+    return [...new Set(allKeywords)].slice(0, 15); // Limit to 15 most relevant keywords
   }
 
   /**
