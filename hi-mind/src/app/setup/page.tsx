@@ -2,7 +2,7 @@ import { Suspense } from "react"
 import { AppShell } from "@/components/layout/app-shell"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { OrganizationSetup } from "@/components/setup/organization-setup"
-import { Building2 } from "lucide-react"
+// import { Building2 } from "lucide-react"
 
 export default function SetupPage() {
   return (

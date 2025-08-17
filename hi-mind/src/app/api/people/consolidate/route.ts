@@ -1,17 +1,19 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/database'
 import { getCurrentOrganization } from '@/lib/organization'
 
 interface ConsolidationResult {
   mergedPeople: Array<{
-    primaryPerson: any
-    mergedPeople: any[]
+    primaryPerson: Record<string, unknown>
+    mergedPeople: Record<string, unknown>[]
     strategy: string
   }>
   errors: string[]
 }
 
-export async function POST(request: NextRequest) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function POST(_request: NextRequest) {
   try {
     console.log('🔄 [CONSOLIDATION] Starting people consolidation...')
 
@@ -52,17 +54,17 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function consolidatePeople(supabase: any, people: any[]): Promise<ConsolidationResult> {
+async function consolidatePeople(supabase: Record<string, unknown>, people: Record<string, unknown>[]): Promise<ConsolidationResult> {
   const result: ConsolidationResult = {
     mergedPeople: [],
     errors: []
   }
 
   // Group people by normalized name for exact/fuzzy matching
-  const nameGroups = new Map<string, any[]>()
+  const nameGroups = new Map<string, Record<string, unknown>[]>()
   
   for (const person of people) {
-    const normalizedName = normalizeName(person.display_name)
+    const normalizedName = normalizeName(person.display_name as string)
     if (!nameGroups.has(normalizedName)) {
       nameGroups.set(normalizedName, [])
     }
@@ -81,7 +83,7 @@ async function consolidatePeople(supabase: any, people: any[]): Promise<Consolid
           if (a.email && !b.email) return -1
           if (!a.email && b.email) return 1
           // Then by creation date
-          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          return new Date(a.created_at as string).getTime() - new Date(b.created_at as string).getTime()
         })
 
         const primaryPerson = sortedGroup[0]
@@ -90,28 +92,28 @@ async function consolidatePeople(supabase: any, people: any[]): Promise<Consolid
         // Merge all external identities into the primary person
         for (const duplicate of duplicatePeople) {
           // Move external identities
-          for (const identity of duplicate.external_identities) {
-            await supabase
+          for (const identity of (duplicate.external_identities as any[]) || []) {
+            await (supabase as any)
               .from('external_identities')
               .update({ person_id: primaryPerson.id })
               .eq('id', identity.id)
           }
 
           // Update knowledge sources to point to primary person
-          await supabase
+          await (supabase as any)
             .from('knowledge_sources')
             .update({ author_person_id: primaryPerson.id })
             .eq('author_person_id', duplicate.id)
 
           // Delete the duplicate person
-          await supabase
+          await (supabase as any)
             .from('people')
             .delete()
             .eq('id', duplicate.id)
         }
 
         // Update primary person with best available information
-        const updateData: any = {}
+        const updateData: Record<string, unknown> = {}
         
         // Use email from any person if primary doesn't have one
         if (!primaryPerson.email) {
@@ -123,8 +125,8 @@ async function consolidatePeople(supabase: any, people: any[]): Promise<Consolid
 
         // Use the most "complete" display name (prefer proper case)
         const bestName = sortedGroup
-          .map(p => p.display_name)
-          .sort((a, b) => {
+          .map((p: any) => p.display_name as string)
+          .sort((a: string, b: string) => {
             // Prefer names with proper capitalization
             const aProper = a.split(' ').every((word: string) => word[0] === word[0].toUpperCase())
             const bProper = b.split(' ').every((word: string) => word[0] === word[0].toUpperCase())
@@ -138,7 +140,7 @@ async function consolidatePeople(supabase: any, people: any[]): Promise<Consolid
         }
 
         if (Object.keys(updateData).length > 0) {
-          await supabase
+          await (supabase as any)
             .from('people')
             .update(updateData)
             .eq('id', primaryPerson.id)
@@ -146,7 +148,7 @@ async function consolidatePeople(supabase: any, people: any[]): Promise<Consolid
 
         result.mergedPeople.push({
           primaryPerson: { ...primaryPerson, ...updateData },
-          mergedPeople: duplicatePeople.map(p => p.display_name),
+          mergedPeople: duplicatePeople.map((p: any) => ({ display_name: p.display_name })),
           strategy: 'name_matching'
         })
 

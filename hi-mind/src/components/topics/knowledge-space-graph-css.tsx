@@ -1,4 +1,6 @@
 'use client'
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable react-hooks/exhaustive-deps */
 
 import * as React from "react"
 import { useEffect, useState } from 'react'

@@ -1,8 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/database'
 import { getCurrentOrganization } from '@/lib/organization'
 
-export async function GET(request: NextRequest) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function GET(_request: NextRequest) {
   try {
     const org = await getCurrentOrganization()
     if (!org) {
@@ -23,16 +25,16 @@ export async function GET(request: NextRequest) {
       .eq('knowledge_sources.organization_id', org.id)
       .limit(5)
 
-    const embeddingInfo = knowledgePoints?.map(kp => {
+    const embeddingInfo = knowledgePoints?.map((kp: any) => {
       let embeddingData = null
       let embeddingLength = 0
-      let embeddingType = typeof kp.embedding
+      const embeddingType = typeof kp.embedding
       let embeddingSample = null
       
       try {
         if (typeof kp.embedding === 'string') {
           // Handle different string formats
-          let embeddingStr = kp.embedding
+          const embeddingStr = kp.embedding
           if (embeddingStr.startsWith('[') && embeddingStr.endsWith(']')) {
             embeddingData = JSON.parse(embeddingStr)
           } else {

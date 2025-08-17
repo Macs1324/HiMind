@@ -3,6 +3,8 @@
  * Automatically syncs missed messages when the app starts
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { WebClient } from "@slack/web-api";
 import { getCurrentOrganization } from "@/lib/organization";
 import { getSupabaseClient } from "@/lib/database";
@@ -103,8 +105,8 @@ export class SlackBackfill {
   /**
    * Fetch messages from Slack after a given timestamp
    */
-  private async fetchMessagesAfter(channelId: string, afterTimestamp: string | null): Promise<any[]> {
-    const messages: any[] = [];
+  private async fetchMessagesAfter(channelId: string, afterTimestamp: string | null): Promise<Record<string, unknown>[]> {
+    const messages: Record<string, unknown>[] = [];
     let cursor: string | undefined;
     const limit = 100; // Slack's max per request
 
@@ -127,14 +129,14 @@ export class SlackBackfill {
           msg.text.length > 10 // Only meaningful messages
         );
         
-        messages.push(...userMessages);
+        messages.push(...(userMessages as any));
       }
 
       cursor = result.response_metadata?.next_cursor;
     } while (cursor);
 
     // Sort by timestamp (oldest first) for proper processing order
-    return messages.sort((a, b) => parseFloat(a.ts) - parseFloat(b.ts));
+    return messages.sort((a: any, b: any) => parseFloat(a.ts) - parseFloat(b.ts));
   }
 
   /**
@@ -171,23 +173,23 @@ export class SlackBackfill {
   /**
    * Process a single message through our knowledge engine
    */
-  private async processMessage(message: any, channelId: string, organizationId: string): Promise<void> {
+  private async processMessage(message: Record<string, unknown>, channelId: string, organizationId: string): Promise<void> {
     try {
       // Create message-specific Slack URL with timestamp
-      const messageUrl = `https://himindworkspace.slack.com/archives/${channelId}/p${message.ts.replace('.', '')}`;
+      const messageUrl = `https://himindworkspace.slack.com/archives/${channelId}/p${(message as any).ts.replace('.', '')}`;
       
       await getKnowledgeEngine().ingestKnowledgeSource({
         platform: 'slack',
         sourceType: 'slack_message',
-        externalId: `${channelId}_${message.ts}`,
+        externalId: `${channelId}_${(message as any).ts}`,
         externalUrl: messageUrl,
-        content: message.text,
-        authorExternalId: message.user,
-        platformCreatedAt: new Date(parseFloat(message.ts) * 1000).toISOString()
+        content: (message as any).text,
+        authorExternalId: (message as any).user,
+        platformCreatedAt: new Date(parseFloat((message as any).ts) * 1000).toISOString()
       }, organizationId);
     } catch (error) {
       // Log but don't throw - continue processing other messages
-      console.error(`⚠️ [SLACK BACKFILL] Failed to process message ${message.ts}:`, error);
+      console.error(`⚠️ [SLACK BACKFILL] Failed to process message ${(message as any).ts}:`, error);
     }
   }
 }

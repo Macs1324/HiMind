@@ -1,8 +1,7 @@
 import { SocketModeClient, LogLevel } from "@slack/socket-mode";
 import { WebClient } from "@slack/web-api";
 import type { 
-  SlackEvent,
-  GenericMessageEvent
+  SlackEvent
 } from "@slack/types";
 import { tryCatchWithLoggingAsync } from "@/utils/try-catch";
 import type { SlackConfig } from "./config";
@@ -615,7 +614,7 @@ export class SlackClient {
         const channel = 'channel' in slackEvent ? String(slackEvent.channel || '') : 'unknown';
         const user = 'user' in slackEvent ? String(slackEvent.user || '') : 'unknown';
         const ts = 'ts' in slackEvent ? String(slackEvent.ts || '') : 
-                  'event_ts' in slackEvent ? String((slackEvent as any).event_ts || '') : 'unknown';
+                  'event_ts' in slackEvent ? String((slackEvent as unknown as Record<string, unknown>).event_ts || '') : 'unknown';
         
         await this.service.handleGenericEvent(eventType, channel, user, ts, slackEvent);
         break;

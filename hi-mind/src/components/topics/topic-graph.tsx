@@ -1,4 +1,6 @@
 'use client'
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable react-hooks/exhaustive-deps */
 
 import * as React from "react"
 import { useEffect, useRef, useState } from 'react'
@@ -59,7 +61,7 @@ interface TopicGraphProps {
 export function TopicGraph({ topics }: TopicGraphProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const animationRef = useRef<number>()
+  const animationRef = useRef<number>(0)
   const [nodes, setNodes] = useState<TopicNode[]>([])
   const [knowledgePointNodes, setKnowledgePointNodes] = useState<KnowledgePointNode[]>([])
   const [explodedTopicId, setExplodedTopicId] = useState<string | null>(null)

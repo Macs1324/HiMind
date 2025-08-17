@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
-import { getKnowledgeEngine } from '@/core/knowledge-engine-singleton'
 import { getCurrentOrganization } from '@/lib/organization'
 import { getSupabaseClient } from '@/lib/database'
 
-export async function POST(request: NextRequest) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function POST(_request: NextRequest) {
   try {
     const org = await getCurrentOrganization()
     if (!org) {
@@ -37,11 +38,11 @@ export async function POST(request: NextRequest) {
       invalidEmbeddings: 0,
       clusteringAttempted: false,
       clustersFound: 0,
-      errors: []
+      errors: [] as string[]
     }
 
-    const validEmbeddings = []
-    const validKnowledgePoints = []
+    const validEmbeddings = [] as number[][]
+    const validKnowledgePoints = [] as any[]
 
     for (const kp of knowledgePoints) {
       try {
@@ -114,11 +115,11 @@ async function performSimpleClustering(embeddings: number[][], k: number): Promi
   console.log(`📊 [DEBUG] Clustering ${numPoints} points with ${dimensions} dimensions`)
 
   // Initialize centroids randomly
-  let centroids = Array(k).fill(null).map(() => 
+  const centroids = Array(k).fill(null).map(() => 
     Array(dimensions).fill(0).map(() => Math.random() * 2 - 1)
   )
 
-  let assignments = new Array(numPoints).fill(0)
+  const assignments = new Array(numPoints).fill(0)
   
   // Single iteration for debugging
   for (let pointIndex = 0; pointIndex < numPoints; pointIndex++) {

@@ -7,15 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-	Search,
 	ExternalLink,
 	User,
-	MessageSquare,
 	Github,
 	Brain,
 	Slack,
 } from "lucide-react";
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface KnowledgeMatch {
 	knowledge_point_id: string;
 	source_id: string;
@@ -57,12 +56,12 @@ interface ExpertSearchResults {
 	hasDirectAnswers: boolean;
 }
 
-interface SearchResults {
-	query: string;
-	knowledgeMatches: KnowledgeMatch[];
-	suggestedExperts: ExpertMatch[];
-	topicMatches: string[];
-}
+// interface SearchResults {
+// 	query: string;
+// 	knowledgeMatches: KnowledgeMatch[];
+// 	suggestedExperts: ExpertMatch[];
+// 	topicMatches: string[];
+// }
 
 export default function SearchPage() {
 	const [query, setQuery] = useState("");

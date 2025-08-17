@@ -15,7 +15,6 @@ import { Badge } from "@/components/ui/badge"
 import {
   Building2,
   Users,
-  Settings,
   Save,
   AlertCircle,
   CheckCircle,
@@ -33,7 +32,7 @@ interface Organization {
     slack_enabled?: boolean
     github_enabled?: boolean
     processing_enabled?: boolean
-    [key: string]: any
+    [key: string]: unknown
   }
   created_at: string
   updated_at: string

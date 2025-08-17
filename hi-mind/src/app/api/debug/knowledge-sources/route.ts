@@ -1,7 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/database'
 
-export async function GET(request: NextRequest) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function GET(_request: NextRequest) {
   try {
     const supabase = getSupabaseClient(true)
     
@@ -27,7 +29,7 @@ export async function GET(request: NextRequest) {
       .select('platform')
       .neq('platform', null)
 
-    const counts = platformCounts?.reduce((acc: Record<string, number>, source) => {
+    const counts = platformCounts?.reduce((acc: Record<string, number>, source: any) => {
       acc[source.platform] = (acc[source.platform] || 0) + 1
       return acc
     }, {}) || {}

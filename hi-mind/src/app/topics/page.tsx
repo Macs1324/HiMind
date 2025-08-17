@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useState, useEffect } from 'react'
-import { Target, Sparkles, Network, RefreshCw, Grid3x3, LayoutGrid } from "lucide-react"
+import { Target, Sparkles, Network, RefreshCw, LayoutGrid } from "lucide-react"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -58,7 +58,7 @@ export default function TopicsPage() {
       
       if (topicsData.success) {
         // Transform the topics to match our interface
-        const formattedTopics = (topicsData.topics || []).map((topic: any) => ({
+        const formattedTopics = (topicsData.topics || []).map((topic: Record<string, unknown>) => ({
           id: topic.id,
           name: topic.name,
           knowledgePointCount: topic.knowledge_point_count,
@@ -75,7 +75,8 @@ export default function TopicsPage() {
           setStats({
             totalKnowledgePoints: statsData.stats.knowledgePoints || 0,
             newTopics: 0,
-            updatedTopics: 0
+            updatedTopics: 0,
+            clustersFound: 0
           })
         }
       }

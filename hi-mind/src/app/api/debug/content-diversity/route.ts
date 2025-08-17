@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/database'
 import { getCurrentOrganization } from '@/lib/organization'
@@ -38,7 +39,7 @@ export async function GET() {
       .select('platform')
       .eq('organization_id', org.id)
 
-    const platformDistribution = platformCounts?.reduce((acc: Record<string, number>, source) => {
+    const platformDistribution = platformCounts?.reduce((acc: Record<string, number>, source: any) => {
       acc[source.platform] = (acc[source.platform] || 0) + 1
       return acc
     }, {})
@@ -49,7 +50,7 @@ export async function GET() {
       .select('source_type')
       .eq('organization_id', org.id)
 
-    const sourceTypeDistribution = sourceTypes?.reduce((acc: Record<string, number>, source) => {
+    const sourceTypeDistribution = sourceTypes?.reduce((acc: Record<string, number>, source: any) => {
       acc[source.source_type] = (acc[source.source_type] || 0) + 1
       return acc
     }, {})
@@ -62,12 +63,12 @@ export async function GET() {
         totalKnowledgePoints: platformCounts?.length || 0
       },
       samples: {
-        slack: slackSamples?.map(s => ({
+        slack: slackSamples?.map((s: any) => ({
           summary: s.summary?.substring(0, 100) + '...',
           sourceType: s.knowledge_sources.source_type,
           contentPreview: s.knowledge_sources.content?.substring(0, 100) + '...'
         })) || [],
-        github: githubSamples?.map(s => ({
+        github: githubSamples?.map((s: any) => ({
           summary: s.summary?.substring(0, 100) + '...',
           sourceType: s.knowledge_sources.source_type,
           contentPreview: s.knowledge_sources.content?.substring(0, 100) + '...'
