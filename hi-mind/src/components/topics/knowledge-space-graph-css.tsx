@@ -47,6 +47,7 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
   const [draggedNode, setDraggedNode] = useState<string | null>(null)
   const [nodeDragStart, setNodeDragStart] = useState({ x: 0, y: 0 })
   const [originalNodePosition, setOriginalNodePosition] = useState({ x: 0, y: 0 })
+  const [hasDraggedNode, setHasDraggedNode] = useState(false)
   
   // Pre-computed similarity matrix for performance
   const [similarityMatrix, setSimilarityMatrix] = useState<number[][]>([])
@@ -528,6 +529,12 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
       const deltaX = (e.clientX - nodeDragStart.x) / zoom
       const deltaY = (e.clientY - nodeDragStart.y) / zoom
       
+      // If we've moved more than a few pixels, consider it a drag
+      const dragDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
+      if (dragDistance > 5) {
+        setHasDraggedNode(true)
+      }
+      
       setNodes(prevNodes => 
         prevNodes.map(node => 
           node.id === draggedNode 
@@ -548,6 +555,8 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
     if (draggedNode) {
       // Release the node and let it snap back
       setDraggedNode(null)
+      // Reset drag flag after a short delay to allow click handler to check it
+      setTimeout(() => setHasDraggedNode(false), 10)
       // Physics will naturally pull it back to its cluster
     } else {
       setIsDragging(false)
@@ -658,12 +667,13 @@ export function KnowledgeSpaceGraph({ className }: KnowledgeSpaceGraphProps) {
                 setDraggedNode(node.id)
                 setNodeDragStart({ x: e.clientX, y: e.clientY })
                 setOriginalNodePosition({ x: node.x, y: node.y })
+                setHasDraggedNode(false) // Reset drag flag
               }}
               onClick={(e) => {
                 e.stopPropagation()
                 
-                // Only handle click if we're not dragging and have an external URL
-                if (!draggedNode && node.externalUrl) {
+                // Only handle click if we haven't dragged and have an external URL
+                if (!hasDraggedNode && node.externalUrl) {
                   window.open(node.externalUrl, '_blank', 'noopener,noreferrer')
                 }
               }}

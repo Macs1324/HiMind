@@ -131,7 +131,7 @@ export default function TopicsPage() {
       <div className="flex flex-col h-full">
         {/* Page Header */}
         <PageHeader
-          title="Knowledge Topics"
+          title="Brain View"
           description={stats ? `${topics.length} Topics from ${stats.totalKnowledgePoints} Knowledge Points` : "Discover and explore topic clusters in your knowledge base"}
         >
           <div className="flex flex-col space-y-2 sm:flex-row sm:space-x-2 sm:space-y-0">
