@@ -317,10 +317,6 @@ export class GitHubService {
           commit,
           {
             title: kp.title,
-            summary: kp.recap,
-            context: kp.recap,
-            fileReference: '',
-            codeSnippet: null,
             recap: kp.recap
           },
           index,

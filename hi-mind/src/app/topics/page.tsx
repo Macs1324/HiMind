@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { AppShell } from "@/components/layout/app-shell"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { TopicGraph } from "@/components/topics/topic-graph"
-import { KnowledgeSpaceGraph } from "@/components/topics/knowledge-space-graph-css"
+import { KnowledgeSpaceGraph } from "@/components/topics/knowledge-space-graph-canvas"
 import { cn } from "@/lib/utils"
 
 interface Topic {

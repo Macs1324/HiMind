@@ -26,7 +26,8 @@ export async function POST(_request: NextRequest) {
 		}
 
 		// Start GitHub integration (which auto-triggers backfill)
-		triggerGitHubBackfill().catch((error) =>
+		const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/')
+		triggerGitHubBackfill(owner, repo).catch((error) =>
 			console.error("❌ [API] GitHub integration failed:", error),
 		);
 
