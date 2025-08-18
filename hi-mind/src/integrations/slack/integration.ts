@@ -6,7 +6,7 @@ import { SlackBackfill } from "./backfill";
 
 let slackClient: SlackClient | null = null;
 
-export async function startSlackIntegration(): Promise<void> {
+export async function startSlackIntegration(skipBackfill: boolean = false): Promise<void> {
   // Don't create multiple clients
   if (slackClient) {
     console.log("🔄 [SLACK] Integration already running, skipping");
@@ -26,14 +26,17 @@ export async function startSlackIntegration(): Promise<void> {
     // Start the client
     await slackClient.start();
     
-    // Run historical message backfill
-    const backfill = new SlackBackfill(config.botToken);
-    // Run backfill in background, don't block startup
-    backfill.runBackfill().catch(error => 
-      console.error("⚠️ Backfill failed but continuing with real-time messages:", error)
-    );
-    
-    console.log("✅ Slack integration started successfully");
+    // Only run historical message backfill if not skipped
+    if (!skipBackfill) {
+      const backfill = new SlackBackfill(config.botToken);
+      // Run backfill in background, don't block startup
+      backfill.runBackfill().catch(error => 
+        console.error("⚠️ Backfill failed but continuing with real-time messages:", error)
+      );
+      console.log("✅ Slack integration started successfully with backfill");
+    } else {
+      console.log("✅ Slack integration started successfully - backfill skipped, use UI button to trigger manually");
+    }
   } catch (error) {
     console.error("❌ Failed to start Slack integration:", error);
     throw error;
