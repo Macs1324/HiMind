@@ -1,84 +1,78 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { GitHubController } from './github.controller';
-import { GitHubService } from './github.service';
-import { LoggingEventRepository } from '@/integrations/github/github.repository';
+import { GitHubController } from "./github.controller";
+import { GitHubService } from "./github.service";
+import { LoggingEventRepository } from "@/integrations/github/github.repository";
 
 let githubController: GitHubController | null = null;
 
-import { tryCatchWithLoggingAsync } from '@/utils/try-catch';
+import { tryCatchWithLoggingAsync } from "@/utils/try-catch";
 
 export async function startGitHubIntegration(): Promise<void> {
-  const [result, error] = await tryCatchWithLoggingAsync(async () => {
-    if (!process.env.GITHUB_TOKEN) {
-      console.log('⚠️ [GITHUB] GITHUB_TOKEN not set, skipping GitHub integration');
-      return;
-    }
+	const [result, error] = await tryCatchWithLoggingAsync(async () => {
+		if (!process.env.GITHUB_TOKEN) {
+			console.log(
+				"⚠️ [GITHUB] GITHUB_TOKEN not set, skipping GitHub integration",
+			);
+			return;
+		}
 
-    // Initialize the dependency chain
-    const eventRepository = new LoggingEventRepository();
-    const githubService = new GitHubService(eventRepository);
-    githubController = new GitHubController(githubService, process.env.GITHUB_TOKEN);
+		// Initialize the dependency chain
+		const eventRepository = new LoggingEventRepository();
+		const githubService = new GitHubService(eventRepository);
+		githubController = new GitHubController(
+			githubService,
+			process.env.GITHUB_TOKEN,
+		);
 
-    console.log('✅ [GITHUB] GitHub integration initialized with new architecture');
+		console.log(
+			"✅ [GITHUB] GitHub integration initialized with new architecture",
+		);
 
-    // Auto-trigger backfill if target repository is configured
-    const targetRepo = process.env.GITHUB_REPOSITORY;
-    if (targetRepo) {
-      console.log(`🚀 [GITHUB] Auto-triggering backfill for ${targetRepo}`);
-      
-      const [owner, repo] = targetRepo.split("/");
-      if (owner && repo) {
-        const [backfillResult, backfillError] = await tryCatchWithLoggingAsync(
-          async () => {
-            if (!githubController) {
-              throw new Error('GitHub controller not initialized');
-            }
-            const result = await githubController.triggerBackfill({
-              owner,
-              repo,
-            });
-            console.log(`✅ [GITHUB] Auto-backfill completed: ${result.totalProcessed} resources`);
-            return result;
-          },
-          "github_auto_backfill"
-        );
+		// Auto-trigger backfill if target repository is configured
+		const targetRepo = process.env.GITHUB_REPOSITORY;
+		if (targetRepo) {
+			console.log(
+				`🚀 [GITHUB] Auto-triggering backfill for ${targetRepo}`,
+			);
 
-        if (backfillError) {
-          console.error('❌ [GITHUB] Auto-backfill failed:', backfillError);
-        }
-      } else {
-        console.warn(`⚠️ [GITHUB] Invalid GITHUB_REPOSITORY format: ${targetRepo}. Expected: owner/repo`);
-      }
-    } else {
-      console.log('ℹ️ [GITHUB] No GITHUB_REPOSITORY configured, skipping auto-backfill');
-    }
-  }, "github_start_integration");
+			const [owner, repo] = targetRepo.split("/");
+			if (!(owner && repo)) {
+				console.warn(
+					`⚠️ [GITHUB] Invalid GITHUB_REPOSITORY format: ${targetRepo}. Expected: owner/repo`,
+				);
+			}
+		} else {
+			console.log(
+				"ℹ️ [GITHUB] No GITHUB_REPOSITORY configured, skipping auto-backfill",
+			);
+		}
+	}, "github_start_integration");
 
-  if (error) {
-    console.error('❌ [GITHUB] Failed to start GitHub integration:', error);
-  }
+	if (error) {
+		console.error("❌ [GITHUB] Failed to start GitHub integration:", error);
+	}
 }
 
 export function stopGitHubIntegration(): void {
-  if (githubController) {
-    // Clean up any resources if needed
-    githubController = null;
-    console.log('🛑 [GITHUB] GitHub integration stopped');
-  }
+	if (githubController) {
+		// Clean up any resources if needed
+		githubController = null;
+		console.log("🛑 [GITHUB] GitHub integration stopped");
+	}
 }
 
 export function getGitHubController(): GitHubController | null {
-  return githubController;
+	return githubController;
 }
 
 // Convenience function for triggering backfill
-export async function triggerGitHubBackfill(owner: string, repo: string): Promise<unknown> {
-  if (!githubController) {
-    throw new Error('GitHub integration not initialized');
-  }
-  
-  return await githubController.triggerBackfill({ owner, repo });
+export async function triggerGitHubBackfill(
+	owner: string,
+	repo: string,
+): Promise<unknown> {
+	if (!githubController) {
+		throw new Error("GitHub integration not initialized");
+	}
+
+	return await githubController.triggerBackfill({ owner, repo });
 }
-
-
-
