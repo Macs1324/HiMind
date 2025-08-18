@@ -15,8 +15,8 @@ export async function register() {
     // Initialize Slack integration
     await initializeSlack();
     
-    // Initialize GitHub integration  
-    await startGitHubIntegration();
+    // Initialize GitHub integration (skip backfill on startup)
+    await startGitHubIntegration(true);
     
     console.log("✅ [INSTRUMENTATION] All services initialized successfully");
   } catch (error) {

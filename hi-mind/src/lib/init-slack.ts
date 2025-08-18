@@ -8,7 +8,7 @@ export async function initializeSlack() {
 
   try {
     console.log("🚀 Auto-initializing Slack integration...");
-    await startSlackIntegration();
+    await startSlackIntegration(true); // Skip backfill on startup
     slackInitialized = true;
     console.log("✅ Slack integration auto-started successfully");
   } catch (error) {
