@@ -1,0 +1,30 @@
+{
+  "name": "hi-mind-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for HiMind knowledge engine",
+  "main": "src/server.ts",
+  "bin": {
+    "hi-mind-mcp": "dist/server.js"
+  },
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "build": "tsx --build src/server.ts --outDir dist",
+    "start": "node dist/server.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.3",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.11"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "himind",
+    "knowledge-engine"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
