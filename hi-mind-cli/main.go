@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"hi-mind-cli/internal/command"
@@ -31,14 +32,22 @@ func main() {
 		displayHelp()
 		os.Exit(1)
 	}
-	query := os.Args[2]
+
+	var query strings.Builder
+	for i := 2; i < len(os.Args); i++ {
+		query.WriteString(os.Args[i])
+		if i != len(os.Args)-1 {
+			query.WriteRune(' ')
+		}
+	}
+	query.WriteRune('?')
 
 	cfg, err := config.Parse()
 	if err != nil {
 		slog.ErrorContext(ctx, "parsing config", "err", err)
 		os.Exit(1)
 	}
-	url := fmt.Sprintf("http://%s/search?q=%s", cfg.Endpoint.URI(), query)
+	url := fmt.Sprintf("http://%s/search?q=%s", cfg.Endpoint.URI(), query.String())
 
 	switch command.FromString(os.Args[1]) {
 	case command.Search:
