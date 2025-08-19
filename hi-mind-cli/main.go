@@ -77,6 +77,9 @@ func main() {
 			fmt.Println(v.Link)
 			fmt.Println()
 		}
+	case command.Help:
+		displayHelp()
+		os.Exit(1)
 	default:
 		fmt.Fprintf(os.Stdout, "Unrecognized command %s\n", os.Args[1])
 		displayHelp()
