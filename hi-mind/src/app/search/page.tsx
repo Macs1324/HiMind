@@ -6,13 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-	ExternalLink,
-	User,
-	Github,
-	Brain,
-	Slack,
-} from "lucide-react";
+import { ExternalLink, User, Github, Brain, Slack } from "lucide-react";
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface KnowledgeMatch {
@@ -171,12 +165,6 @@ export default function SearchPage() {
 									<CardTitle className="flex items-center gap-2">
 										<User className="h-5 w-5" />
 										<span>Recommended Experts</span>
-										<Badge
-											variant="outline"
-											className="text-xs bg-[#bf616a]/10 text-[#bf616a] border-[#bf616a]/20"
-										>
-											People First
-										</Badge>
 									</CardTitle>
 									<p className="text-sm text-muted-foreground">
 										People with expertise in this area -

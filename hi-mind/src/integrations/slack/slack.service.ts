@@ -4,7 +4,7 @@ import { getKnowledgeEngine } from "@/core/knowledge-engine-singleton";
 import { getCurrentOrganization } from "@/lib/organization";
 
 export interface SlackService {
-  handleMessage(channelId: string, userId: string, text: string, timestamp: string): Promise<void>;
+  handleMessage(channelId: string, userId: string, text: string, timestamp: string, threadTs?: string): Promise<void>;
   handleReaction(channelId: string, userId: string, reaction: string, timestamp: string): Promise<void>;
   handleMemberJoined(channelId: string, userId: string, timestamp: string): Promise<void>;
   handleMemberLeft(channelId: string, userId: string, timestamp: string): Promise<void>;
@@ -13,30 +13,32 @@ export interface SlackService {
     action?: string;
     responseMessage?: string;
   }>;
-  handleBackfillMessage(channelId: string, userId: string, text: string, timestamp: string): Promise<void>;
-  handleBackfillThreadReply(channelId: string, userId: string, text: string, timestamp: string): Promise<void>;
+  handleBackfillMessage(channelId: string, userId: string, text: string, timestamp: string, threadTs?: string): Promise<void>;
+  handleBackfillThreadReply(channelId: string, userId: string, text: string, timestamp: string, threadTs?: string): Promise<void>;
   handleGenericEvent(eventType: string, channelId: string, userId: string, timestamp: string, data?: unknown): Promise<void>;
 }
 
 export class SlackServiceImpl implements SlackService {
   constructor(private readonly repository: SlackRepository) {}
 
-  async handleMessage(channelId: string, userId: string, text: string, timestamp: string): Promise<void> {
+  async handleMessage(channelId: string, userId: string, text: string, timestamp: string, threadTs?: string): Promise<void> {
     // Log the message
     await this.repository.logMessage(channelId, userId, text, timestamp);
     
     // Create message-specific Slack URL with timestamp
     const messageUrl = `https://himindworkspace.slack.com/archives/${channelId}/p${timestamp.replace('.', '')}`;
     
-    // Process content through knowledge engine
-    await this.processSlackContent({
+    // Process content through enhanced knowledge engine with context
+    await this.processSlackContentWithContext({
       platform: 'slack',
-      sourceType: 'slack_message',
+      sourceType: threadTs ? 'slack_thread' : 'slack_message',
       externalId: `${channelId}_${timestamp}`,
       externalUrl: messageUrl,
       content: text,
       authorExternalId: userId,
-      platformCreatedAt: new Date(parseFloat(timestamp) * 1000).toISOString()
+      platformCreatedAt: new Date(parseFloat(timestamp) * 1000).toISOString(),
+      channelId,
+      threadTs
     });
   }
 
@@ -104,35 +106,39 @@ export class SlackServiceImpl implements SlackService {
     };
   }
 
-  async handleBackfillMessage(channelId: string, userId: string, text: string, timestamp: string): Promise<void> {
+  async handleBackfillMessage(channelId: string, userId: string, text: string, timestamp: string, threadTs?: string): Promise<void> {
     // Log the backfill message
     await this.repository.logBackfillMessage(channelId, userId, text, timestamp);
     
-    // Process backfilled content
-    await this.processSlackContent({
+    // Process backfilled content with context
+    await this.processSlackContentWithContext({
       platform: 'slack',
-      sourceType: 'slack_message',
+      sourceType: threadTs ? 'slack_thread' : 'slack_message',
       externalId: `${channelId}_${timestamp}_backfill`,
       externalUrl: `https://slack.com/channels/${channelId}`,
       content: text,
       authorExternalId: userId,
-      platformCreatedAt: new Date(parseFloat(timestamp) * 1000).toISOString()
+      platformCreatedAt: new Date(parseFloat(timestamp) * 1000).toISOString(),
+      channelId,
+      threadTs
     });
   }
 
-  async handleBackfillThreadReply(channelId: string, userId: string, text: string, timestamp: string): Promise<void> {
+  async handleBackfillThreadReply(channelId: string, userId: string, text: string, timestamp: string, threadTs?: string): Promise<void> {
     // Log the backfill thread reply
     await this.repository.logBackfillThreadReply(channelId, userId, text, timestamp);
     
-    // Process thread reply
-    await this.processSlackContent({
+    // Process thread reply with context
+    await this.processSlackContentWithContext({
       platform: 'slack',
       sourceType: 'slack_thread',
       externalId: `${channelId}_${timestamp}_thread`,
       externalUrl: `https://slack.com/channels/${channelId}`,
       content: text,
       authorExternalId: userId,
-      platformCreatedAt: new Date(parseFloat(timestamp) * 1000).toISOString()
+      platformCreatedAt: new Date(parseFloat(timestamp) * 1000).toISOString(),
+      channelId,
+      threadTs
     });
   }
 
@@ -142,6 +148,33 @@ export class SlackServiceImpl implements SlackService {
     
     // TODO: Add business logic here (e.g., event processing, analytics, etc.)
     // For now, just logging
+  }
+
+  private async processSlackContentWithContext(source: KnowledgeSource & {
+    channelId?: string;
+    threadTs?: string;
+  }): Promise<void> {
+    try {
+      // Get current organization
+      const org = await getCurrentOrganization();
+      if (!org) {
+        console.error('❌ [SLACK SERVICE] No organization found. Please create one first.');
+        return;
+      }
+
+      // Use enhanced contextual ingestion
+      const knowledgePointId = await getKnowledgeEngine().ingestSlackMessageWithContext(source, org.id);
+      
+      if (knowledgePointId) {
+        console.log(`✅ [SLACK SERVICE] Processed contextual ${source.sourceType}: ${source.externalId} → ${knowledgePointId}`);
+      } else {
+        console.log(`⏭️ [SLACK SERVICE] Skipped non-substantial message: ${source.externalId}`);
+      }
+      
+    } catch (error) {
+      console.error(`❌ [SLACK SERVICE] Failed to process contextual content ${source.externalId}:`, error);
+      // Don't throw - we want Slack events to continue processing even if knowledge processing fails
+    }
   }
 
   private async processSlackContent(source: KnowledgeSource): Promise<void> {

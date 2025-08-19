@@ -70,12 +70,52 @@ export class SlackBackfill {
         if (message.text && message.user && message.ts) {
           await this.processMessage(message, channelId, organizationId);
           processed++;
+          
+          // If this message has thread replies, fetch and process them
+          // Check both thread_ts condition AND reply_count for comprehensive thread detection
+          const hasThread = (message.thread_ts && message.thread_ts === message.ts) || 
+                           (message.reply_count && message.reply_count > 0);
+          
+          if (hasThread) {
+            console.log(`🧵 [SLACK BACKFILL] Found threaded message: ${message.ts}, reply_count: ${message.reply_count || 0}`);
+            const threadReplies = await this.fetchThreadReplies(channelId, message.ts);
+            for (const reply of threadReplies) {
+              if (reply.text && reply.user && reply.ts && reply.ts !== message.ts) {
+                console.log(`📝 [SLACK BACKFILL] Processing thread reply: ${reply.text?.substring(0, 50)}...`);
+                await this.processMessage(reply, channelId, organizationId);
+                processed++;
+              }
+            }
+          }
         }
       }
 
       console.log(`✅ [SLACK BACKFILL] Processed ${processed} messages from #${channelName}`);
     } catch (error) {
       console.error(`❌ [SLACK BACKFILL] Failed to backfill channel #${channelName}:`, error);
+    }
+  }
+
+  /**
+   * Fetch thread replies for a given thread
+   */
+  private async fetchThreadReplies(channelId: string, threadTs: string): Promise<any[]> {
+    try {
+      console.log(`🧵 [SLACK BACKFILL] Fetching thread replies for ${threadTs}`);
+      
+      const result = await this.client.conversations.replies({
+        channel: channelId,
+        ts: threadTs,
+        limit: 100
+      });
+      
+      const replies = result.messages || [];
+      console.log(`📥 [SLACK BACKFILL] Found ${replies.length - 1} thread replies`); // -1 because first message is the parent
+      
+      return replies;
+    } catch (error) {
+      console.error(`❌ [SLACK BACKFILL] Failed to fetch thread replies for ${threadTs}:`, error);
+      return [];
     }
   }
 
@@ -171,22 +211,38 @@ export class SlackBackfill {
   }
 
   /**
-   * Process a single message through our knowledge engine
+   * Process a single message through our enhanced contextual knowledge engine
    */
   private async processMessage(message: Record<string, unknown>, channelId: string, organizationId: string): Promise<void> {
     try {
-      // Create message-specific Slack URL with timestamp
-      const messageUrl = `https://himindworkspace.slack.com/archives/${channelId}/p${(message as any).ts.replace('.', '')}`;
+      const msgAny = message as any;
       
-      await getKnowledgeEngine().ingestKnowledgeSource({
+      // Create message-specific Slack URL with timestamp
+      const messageUrl = `https://himindworkspace.slack.com/archives/${channelId}/p${msgAny.ts.replace('.', '')}`;
+      
+      // Check if this is a thread reply
+      const threadTs = msgAny.thread_ts;
+      const isThreadReply = threadTs && threadTs !== msgAny.ts;
+      
+      // Use contextual ingestion for better knowledge extraction
+      const knowledgePointId = await getKnowledgeEngine().ingestSlackMessageWithContext({
         platform: 'slack',
-        sourceType: 'slack_message',
-        externalId: `${channelId}_${(message as any).ts}`,
+        sourceType: isThreadReply ? 'slack_thread' : 'slack_message',
+        externalId: `${channelId}_${msgAny.ts}_backfill`,
         externalUrl: messageUrl,
-        content: (message as any).text,
-        authorExternalId: (message as any).user,
-        platformCreatedAt: new Date(parseFloat((message as any).ts) * 1000).toISOString()
+        content: msgAny.text,
+        authorExternalId: msgAny.user,
+        platformCreatedAt: new Date(parseFloat(msgAny.ts) * 1000).toISOString(),
+        channelId,
+        threadTs: threadTs || undefined
       }, organizationId);
+      
+      if (knowledgePointId) {
+        console.log(`✅ [SLACK BACKFILL] Processed contextual message: ${msgAny.ts} → ${knowledgePointId}`);
+      } else {
+        console.log(`⏭️ [SLACK BACKFILL] Skipped non-substantial message: ${msgAny.ts}`);
+      }
+      
     } catch (error) {
       // Log but don't throw - continue processing other messages
       console.error(`⚠️ [SLACK BACKFILL] Failed to process message ${(message as any).ts}:`, error);
