@@ -22,7 +22,7 @@ const navigation: NavItem[] = [
 	{ title: "Knowledge Search", icon: Search, href: "/search" },
 	{ title: "Brain View", icon: Brain, href: "/topics" },
 	{ title: "People", icon: Users, href: "/people" },
-	{ title: "Setup", icon: Wrench, href: "/setup" },
+	{ title: "Setup", icon: Wrench, href: "/" },
 ];
 
 export function AppSidebar({ open, onOpenChange, className }: AppSidebarProps) {
@@ -84,21 +84,6 @@ export function AppSidebar({ open, onOpenChange, className }: AppSidebarProps) {
 							);
 						})}
 					</nav>
-
-					{/* Footer */}
-					<div className="border-t p-4">
-						<div className="flex items-center space-x-3">
-							<div className="h-8 w-8 rounded-full bg-muted" />
-							<div className="flex-1 min-w-0">
-								<p className="text-sm font-medium text-foreground truncate">
-									John Doe
-								</p>
-								<p className="text-xs text-muted-foreground truncate">
-									john@example.com
-								</p>
-							</div>
-						</div>
-					</div>
 				</div>
 			</aside>
 		</>
