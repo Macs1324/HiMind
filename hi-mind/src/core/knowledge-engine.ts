@@ -154,6 +154,120 @@ export class KnowledgeEngine {
   }
 
   /**
+   * Enhanced ingestion for Slack messages with contextual processing
+   */
+  async ingestSlackMessageWithContext(
+    source: KnowledgeSource & {
+      channelId?: string;
+      threadTs?: string;
+    }, 
+    organizationId: string
+  ): Promise<string | null> {
+    console.log(`🧠 [CONTEXTUAL INGEST] Processing Slack message: ${source.externalId}`);
+
+    // 1. Process message with contextual enhancement
+    const contextualResult = await this.processSlackMessageWithContext({
+      ...source,
+      timestamp: source.platformCreatedAt
+    });
+
+    if (!contextualResult.shouldIndex) {
+      console.log(`⏭️ [CONTEXTUAL INGEST] Skipping non-substantial message: ${source.externalId}`);
+      return null;
+    }
+
+    // 2. Try to resolve author first to get person_id
+    let authorPersonId: string | null = null;
+    if (source.authorExternalId && source.platform) {
+      authorPersonId = await this.getOrCreateAuthorPerson(source, organizationId);
+    }
+
+    // 3. Store the raw knowledge source with contextual content
+    const { data: knowledgeSource, error: sourceError } = await this.supabase
+      .from('knowledge_sources')
+      .upsert({
+        organization_id: organizationId,
+        platform: source.platform,
+        source_type: source.sourceType,
+        external_id: source.externalId,
+        external_url: source.externalUrl,
+        title: source.title,
+        content: source.content,
+        contextual_content: contextualResult.contextualContent,
+        channel_id: source.channelId,
+        thread_ts: source.threadTs,
+        author_external_id: source.authorExternalId,
+        author_person_id: authorPersonId,
+        platform_created_at: source.platformCreatedAt
+      }, { 
+        onConflict: 'organization_id,platform,external_id'
+      })
+      .select()
+      .single();
+
+    if (sourceError) {
+      console.error('❌ [CONTEXTUAL INGEST] Failed to store knowledge source:', sourceError);
+      throw sourceError;
+    }
+
+    // 4. Additional safety check: Skip obvious questions that slipped through LLM filtering
+    // Be less aggressive with thread replies to capture more conversational content
+    const isThread = source.sourceType === 'slack_thread';
+    const shouldFilter = !isThread && (this.isObviousQuestion(source.content) || this.isObviousQuestion(contextualResult.contextualContent));
+    
+    if (shouldFilter) {
+      console.log(`⚠️ [CONTEXTUAL INGEST] Safety filter caught question that LLM missed: ${source.externalId}`);
+      console.log(`🔍 [CONTEXTUAL INGEST] Original: "${source.content}"`);
+      console.log(`🔍 [CONTEXTUAL INGEST] Enhanced: "${contextualResult.contextualContent}"`);
+      return null;
+    }
+    
+    if (isThread) {
+      console.log(`🧵 [CONTEXTUAL INGEST] Processing thread reply with relaxed filtering: "${source.content}"`);
+    }
+
+    // 5. Process content with AI using contextual enhancement and related questions
+    const processed = await this.processContentWithAI(
+      source.content, 
+      source.title, 
+      contextualResult.contextualContent,
+      contextualResult.relatedQuestions
+    );
+
+    // 6. Store the processed knowledge point with contextual data
+    const { data: knowledgePoint, error: pointError } = await this.supabase
+      .from('knowledge_points')
+      .upsert({
+        source_id: knowledgeSource.id,
+        summary: processed.summary,
+        contextual_summary: processed.contextualSummary,
+        context_sources: contextualResult.contextSources,
+        keywords: processed.keywords,
+        embedding: processed.embedding,
+        quality_score: processed.qualityScore,
+        relevance_score: processed.relevanceScore
+      }, {
+        onConflict: 'source_id'
+      })
+      .select()
+      .single();
+
+    if (pointError) {
+      console.error('❌ [CONTEXTUAL INGEST] Failed to store knowledge point:', pointError);
+      throw pointError;
+    }
+
+    // 7. Update topic clusters and expert scores asynchronously
+    this.updateTopicClustersAsync(organizationId, knowledgePoint.id, processed.embedding);
+    this.updateExpertiseScoresAsync(organizationId, source.authorExternalId, knowledgePoint.id);
+
+    console.log(`✅ [CONTEXTUAL INGEST] Processed contextual knowledge point: ${knowledgePoint.id}`);
+    console.log(`🎯 [CONTEXTUAL INGEST] Enhanced: "${source.content}" → "${contextualResult.contextualContent}"`);
+    
+    return knowledgePoint.id;
+  }
+
+  /**
    * Get or create person for author, using email-based matching
    */
   private async getOrCreateAuthorPerson(source: KnowledgeSource, organizationId: string): Promise<string | null> {
@@ -1316,24 +1430,349 @@ Topic Name:`;
 
 
 
-  private async processContentWithAI(content: string, title?: string): Promise<ProcessedKnowledge> {
-    // Combine title and content
-    const fullText = title ? `${title}\n\n${content}` : content;
+  /**
+   * Enhanced contextual processing for Slack messages with conversation context
+   */
+  async processSlackMessageWithContext(source: KnowledgeSource & {
+    channelId?: string;
+    threadTs?: string;
+    timestamp: string;
+  }  ): Promise<{
+    contextualContent: string;
+    shouldIndex: boolean;
+    contextSources: string[];
+    relatedQuestions: string[];
+  }> {
+    try {
+      console.log(`🧠 [CONTEXTUAL] Processing message with context: ${source.externalId}`);
 
-    // Generate embedding
-    const embedding = await this.generateEmbedding(fullText);
+      // 1. Get conversation context
+      const context = await this.gatherConversationContext(
+        source.channelId,
+        source.threadTs,
+        source.platformCreatedAt
+      );
 
-    // Extract summary and keywords using simple AI processing
-    const summary = await this.generateSummary(fullText);
-    const keywords = await this.extractKeywords(fullText);
+      // 2. Use LLM to enhance content with context
+      const enhancement = await this.enhanceMessageWithContext(
+        source.content,
+        context.recentMessages,
+        context.threadMessages
+      );
+
+      if (!enhancement.shouldIndex) {
+        console.log(`⏭️ [CONTEXTUAL] Skipping message (not substantial): ${source.externalId}`);
+        return {
+          contextualContent: source.content,
+          shouldIndex: false,
+          contextSources: [],
+          relatedQuestions: []
+        };
+      }
+
+      console.log(`✅ [CONTEXTUAL] Enhanced message: "${source.content}" → "${enhancement.contextualContent}"`);
+      if (enhancement.relatedQuestions.length > 0) {
+        console.log(`🔗 [CONTEXTUAL] Found related questions: ${enhancement.relatedQuestions.join(', ')}`);
+      }
+      
+      return {
+        contextualContent: enhancement.contextualContent,
+        shouldIndex: true,
+        contextSources: context.sourceIds,
+        relatedQuestions: enhancement.relatedQuestions
+      };
+
+    } catch (error) {
+      console.error(`❌ [CONTEXTUAL] Context enhancement failed for ${source.externalId}:`, error);
+      console.log(`🔧 [CONTEXTUAL] Falling back to safety filter only for: "${source.content}"`);
+      
+      // Apply safety filter even in fallback
+      if (this.isObviousQuestion(source.content)) {
+        console.log(`⚠️ [CONTEXTUAL] Safety filter caught question in fallback: ${source.externalId}`);
+        return {
+          contextualContent: source.content,
+          shouldIndex: false,
+          contextSources: [],
+          relatedQuestions: []
+        };
+      }
+      
+      // Fallback to original content
+      return {
+        contextualContent: source.content,
+        shouldIndex: true,
+        contextSources: [],
+        relatedQuestions: []
+      };
+    }
+  }
+
+  /**
+   * Gather conversation context from channel history and thread
+   */
+  private async gatherConversationContext(
+    channelId?: string,
+    threadTs?: string,
+    messageTimestamp?: string
+  ): Promise<{
+    recentMessages: Array<{author: string; content: string; timestamp: string}>;
+    threadMessages: Array<{author: string; content: string; timestamp: string}>;
+    sourceIds: string[];
+  }> {
+    const context = {
+      recentMessages: [] as Array<{author: string; content: string; timestamp: string}>,
+      threadMessages: [] as Array<{author: string; content: string; timestamp: string}>,
+      sourceIds: [] as string[]
+    };
+
+    try {
+      const beforeTimestamp = messageTimestamp || new Date().toISOString();
+
+      // Get recent channel messages for context
+      if (channelId) {
+        const { data: channelContext } = await this.supabase
+          .rpc('get_channel_context', {
+            channel_id_param: channelId,
+            before_timestamp: beforeTimestamp,
+            message_limit: 8
+          });
+
+        if (channelContext) {
+          context.recentMessages = channelContext.map((msg: any) => ({
+            author: msg.author_external_id || 'unknown',
+            content: msg.content,
+            timestamp: msg.platform_created_at
+          }));
+          context.sourceIds.push(...channelContext.map((msg: any) => msg.external_id));
+        }
+      }
+
+      // Get thread messages if this is part of a thread
+      if (threadTs && channelId) {
+        const { data: threadContext } = await this.supabase
+          .rpc('get_thread_context', {
+            thread_ts_param: threadTs,
+            channel_id_param: channelId
+          });
+
+        if (threadContext) {
+          context.threadMessages = threadContext.map((msg: any) => ({
+            author: msg.author_external_id || 'unknown',
+            content: msg.content,
+            timestamp: msg.platform_created_at
+          }));
+          context.sourceIds.push(...threadContext.map((msg: any) => msg.external_id));
+        }
+      }
+
+    } catch (error) {
+      console.error('❌ [CONTEXTUAL] Failed to gather conversation context:', error);
+    }
+
+    return context;
+  }
+
+  /**
+   * Use LLM to enhance message content with conversation context and question-answer linking
+   */
+  private async enhanceMessageWithContext(
+    currentMessage: string,
+    recentMessages: Array<{author: string; content: string; timestamp: string}>,
+    threadMessages: Array<{author: string; content: string; timestamp: string}>
+  ): Promise<{
+    contextualContent: string;
+    shouldIndex: boolean;
+    referencedTopics: string[];
+    relatedQuestions: string[];
+  }> {
+    try {
+      // Build context for the LLM
+      const recentContext = recentMessages
+        .slice(0, 6) // Limit to prevent token overflow
+        .map(msg => `${msg.author}: ${msg.content}`)
+        .join('\n');
+
+      const threadContext = threadMessages.length > 0 
+        ? threadMessages.map(msg => `${msg.author}: ${msg.content}`).join('\n')
+        : '';
+
+      const prompt = `You are analyzing a Slack message to extract meaningful knowledge for a workplace knowledge discovery system.
+
+${threadContext ? `Thread Context:\n${threadContext}\n\n` : ''}${recentContext ? `Recent Channel Messages:\n${recentContext}\n\n` : ''}Current Message: "${currentMessage}"
+
+Your task is to determine if this message contains VALUABLE KNOWLEDGE worth indexing.
+
+ONLY EXTRACT knowledge from messages that:
+- Provide solutions, answers, or explanations
+- Share factual information or procedures
+- Describe how something works
+- Offer to help with specific technical tasks
+- State definitive facts or status updates
+
+ALWAYS SKIP these message types:
+- Pure questions asking for help (what/how/where/when/why questions)
+- Requests for assistance ("can someone help", "@user help me")
+- Social greetings ("hello", "thanks", "ok")
+- Simple acknowledgments
+- Messages asking someone to do something ("@user say something")
+
+CRITICAL: If the message is asking a question or requesting help, respond with "SKIP" - do NOT try to extract facts from it.
+
+RESPONSE FORMAT:
+If substantial knowledge exists, respond in JSON format:
+{
+  "knowledge": "The enhanced factual knowledge",
+  "relatedQuestions": ["question1", "question2"]
+}
+
+If no substantial knowledge, respond: "SKIP"
+
+Examples:
+
+GOOD - Extract these:
+Input: "You can find it at https://docs.example.com"
+Output: {"knowledge": "The project documentation is available at https://docs.example.com", "relatedQuestions": []}
+
+Input: "The fix is to restart the Redis service"
+Output: {"knowledge": "To fix cache timeout issues, restart the Redis service", "relatedQuestions": []}
+
+Input: "I can set us up with Next.js"
+Output: {"knowledge": "Next.js setup is available for the project", "relatedQuestions": []}
+
+BAD - Skip these:
+Input: "@user what do I need to do to test the slack bot locally"
+Output: "SKIP"
+
+Input: "@user say something"
+Output: "SKIP"
+
+Input: "hello"
+Output: "SKIP"
+
+Input: "where can I find the documentation?"
+Output: "SKIP"
+
+Input: "how do I run this?"
+Output: "SKIP"
+
+Respond with either the JSON or "SKIP":`;
+
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 200,
+        temperature: 0.1, // Low temperature for consistent extraction
+      });
+
+      const result = response.choices[0]?.message?.content?.trim();
+      
+      if (!result || result === 'SKIP') {
+        return {
+          contextualContent: currentMessage,
+          shouldIndex: false,
+          referencedTopics: [],
+          relatedQuestions: []
+        };
+      }
+
+      // Try to parse JSON response
+      try {
+        const parsed = JSON.parse(result);
+        if (parsed.knowledge) {
+          return {
+            contextualContent: parsed.knowledge,
+            shouldIndex: true,
+            referencedTopics: [], // Could be enhanced later
+            relatedQuestions: parsed.relatedQuestions || []
+          };
+        }
+      } catch (parseError) {
+        console.warn('❌ [CONTEXTUAL] Failed to parse JSON response, using as-is:', parseError);
+      }
+
+      // Fallback to treating result as plain text (backward compatibility)
+      return {
+        contextualContent: result,
+        shouldIndex: true,
+        referencedTopics: [],
+        relatedQuestions: []
+      };
+
+    } catch (error) {
+      console.error('❌ [CONTEXTUAL] LLM enhancement failed:', error);
+      return {
+        contextualContent: currentMessage,
+        shouldIndex: true,
+        referencedTopics: [],
+        relatedQuestions: []
+      };
+    }
+  }
+
+  /**
+   * Safety check to catch obvious questions that slipped through LLM filtering
+   */
+  private isObviousQuestion(content: string): boolean {
+    const questionPatterns = [
+      // Direct questions with question marks
+      /^(what|how|where|when|why|can|should|could|would|do|does|is|are)\s+.*\?$/i,
+      // Questions without question marks but with question words + help/need/find patterns
+      /(what|how|where|when|why|can|should|could|would).+(do|does|need|find|get|help|know)/i,
+      // @mentions with question words
+      /@[A-Z0-9]+.*?(what|how|where|when|why|can|should|could|would)/i,
+      // Simple commands/requests to users
+      /@[A-Z0-9]+\s+(say|tell|help|show|explain)/i,
+      // @mentions followed by simple words
+      /@[A-Z0-9]+>\s+(hello|hi|hey|say)/i,
+      // Help requests
+      /help.*?(with|me|please)/i,
+      /anyone.*?(know|help)/i,
+      // Simple greetings and social
+      /^(hello|hi|hey|thanks|thank you|ok|okay)$/i
+    ];
+
+    for (const pattern of questionPatterns) {
+      if (pattern.test(content.trim())) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private async processContentWithAI(
+    content: string, 
+    title?: string, 
+    contextualContent?: string,
+    relatedQuestions?: string[]
+  ): Promise<ProcessedKnowledge & { contextualSummary?: string }> {
+    // Build embedding text with contextual content and related questions
+    let embeddingText = contextualContent || (title ? `${title}\n\n${content}` : content);
     
-    // Calculate quality metrics
-    const qualityScore = this.calculateQualityScore(fullText, keywords);
-    const relevanceScore = this.calculateRelevanceScore(fullText);
+    // Include related questions in the embedding to improve searchability
+    if (relatedQuestions && relatedQuestions.length > 0) {
+      const questionsText = relatedQuestions.join(' ');
+      embeddingText = `${embeddingText}\n\nRelated questions: ${questionsText}`;
+    }
+    
+    const summaryText = title ? `${title}\n\n${content}` : content;
+
+    // Generate embedding from contextually enhanced content with questions
+    const embedding = await this.generateEmbedding(embeddingText);
+
+    // Extract summary and keywords using original content for consistency
+    const summary = await this.generateSummary(summaryText);
+    const contextualSummary = contextualContent ? await this.generateSummary(contextualContent) : undefined;
+    const keywords = await this.extractKeywords(embeddingText); // Use contextual content for better keywords
+    
+    // Calculate quality metrics on contextual content
+    const qualityScore = this.calculateQualityScore(embeddingText, keywords);
+    const relevanceScore = this.calculateRelevanceScore(embeddingText);
 
     return {
       sourceId: '', // Will be set by caller
       summary,
+      contextualSummary,
       keywords,
       embedding,
       qualityScore,

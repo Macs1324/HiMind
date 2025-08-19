@@ -258,6 +258,18 @@ export class SlackClient {
 
         resources.push(resource);
 
+        // Process the message through our service with context
+        if (message.text && message.user && message.ts) {
+          const threadTs = message.thread_ts !== message.ts ? message.thread_ts : undefined;
+          await this.service.handleBackfillMessage(
+            channelId, 
+            message.user, 
+            message.text, 
+            message.ts,
+            threadTs
+          );
+        }
+
         // If message has a thread, fetch and log replies
         if (message.thread_ts) {
           const threadResources = await this.backfillThread(channelId, message.thread_ts);
@@ -316,6 +328,17 @@ export class SlackClient {
         );
 
         resources.push(resource);
+
+        // Process the thread reply through our service with context
+        if (reply.text && reply.user && reply.ts) {
+          await this.service.handleBackfillThreadReply(
+            channelId, 
+            reply.user, 
+            reply.text, 
+            reply.ts,
+            threadTs
+          );
+        }
       }
 
       repliesCursor = replies.response_metadata?.next_cursor;
@@ -564,7 +587,10 @@ export class SlackClient {
             userId = slackEvent.user;
             timestamp = slackEvent.ts;
             
-            await this.service.handleMessage(channelId, userId, slackEvent.text || '', timestamp);
+            // Extract thread_ts if this is a thread reply
+            const threadTs = 'thread_ts' in slackEvent ? slackEvent.thread_ts : undefined;
+            
+            await this.service.handleMessage(channelId, userId, slackEvent.text || '', timestamp, threadTs);
           }
         }
         break;
