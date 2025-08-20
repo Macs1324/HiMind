@@ -807,7 +807,7 @@ Your selection (numbers only):`;
         temperature: 0.1, // Low temperature for consistent ranking
       });
       const defaultResponse = new Promise((res) =>
-        setTimeout(res({ choices: [{ message: { content: "1,2,3" } }] }), 3000),
+        setTimeout(res({ choices: [{ message: { content: "1,2,3" } }] }), 5000),
       );
 
       let response = await Promise.race([openAiResponse, defaultResponse]);
